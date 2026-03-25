@@ -62,3 +62,6 @@ venv.bak/
 
 ## Visual Studio Code
 .vscode/
+
+## CLAUDE CODE
+.claude/
