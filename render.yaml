@@ -27,7 +27,7 @@ services:
         sync: false
 
   - type: web
-    name: minigolfmasters-web
+    name: minigolfmasters
     env: static
     rootDir: frontend
     buildCommand: npm install && npm run build
