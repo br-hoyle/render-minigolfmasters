@@ -7,69 +7,89 @@ export default function Home() {
   }, [])
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-8 space-y-10">
-      {/* Hero */}
-      <section className="text-center space-y-4">
-        <img src="/images/logo.png" alt="Mini Golf Masters" className="w-24 h-24 mx-auto" />
-        <h1 className="font-display font-black text-4xl text-forest leading-tight">
-          Mini Golf Masters
+    <div>
+      {/* Banner */}
+      <div className="w-full h-44 overflow-hidden">
+        <img
+          src="/images/mgmt_banner.png"
+          alt=""
+          className="w-full h-full object-cover object-top"
+        />
+      </div>
+
+      {/* Hero section */}
+      <section className="bg-cream py-12 text-center px-6">
+        <h1 className="font-display font-black text-3xl text-gray-900 leading-tight">
+          The Tournament Experience Your Mini Golf League Deserves
         </h1>
-        <p className="text-gray-600 text-lg">
-          An invite-only tournament for friends who take their mini golf very seriously.
-        </p>
-        <div className="flex gap-3 justify-center flex-wrap">
-          <Link
-            to="/tournaments"
-            className="bg-forest text-white font-semibold px-5 py-2.5 rounded-lg hover:bg-emerald transition-colors"
-          >
-            View Tournaments
-          </Link>
-          <Link
-            to="/history"
-            className="bg-silver text-gray-800 font-semibold px-5 py-2.5 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            View History
-          </Link>
-        </div>
-      </section>
-
-      {/* About */}
-      <section className="space-y-3">
-        <h2 className="font-display font-bold text-2xl text-forest">How It Works</h2>
-        <ol className="space-y-2 text-gray-700">
-          {[
-            'Invitations go out to a select group of friends.',
-            'Register for an upcoming tournament.',
-            'Show up, play your round, enter scores hole by hole.',
-            'Net scores (adjusted for handicap) determine the leaderboard.',
-            'The best net score wins the green jacket — bragging rights included.',
-          ].map((step, i) => (
-            <li key={i} className="flex gap-3">
-              <span className="font-display font-bold text-forest w-6 shrink-0">{i + 1}.</span>
-              <span>{step}</span>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      {/* CTA */}
-      <section className="bg-forest text-white rounded-2xl p-6 text-center space-y-3">
-        <h2 className="font-display font-bold text-xl">Want to Join?</h2>
-        <p className="text-sm text-green-100">
-          Mini Golf Masters is invite-only. Reach out if you think you've got what it takes.
+        <p className="text-sm text-gray-500 mt-2">
+          Live scores. Real handicaps. No paper scorecards. No excuses.
         </p>
         <Link
-          to="/contact"
-          className="inline-block bg-yellow text-forest font-bold px-5 py-2.5 rounded-lg hover:opacity-90 transition-opacity"
+          to="/tournaments"
+          className="inline-block bg-forest text-white font-semibold px-8 py-3 rounded-full mt-6 hover:bg-emerald transition-colors"
         >
-          Get In Touch
+          View Tournaments
         </Link>
       </section>
 
-      {/* Login CTA */}
-      <section className="text-center">
-        <Link to="/login" className="text-forest font-semibold underline underline-offset-2">
-          Already have an account? Log in →
+      {/* Quote section */}
+      <section className="bg-white py-10 text-center px-8">
+        <blockquote className="italic text-gray-600 text-sm">
+          "A tradition not unlike no other thing that has ever come before or beyond in any way, shape or form - ever."
+        </blockquote>
+        <cite className="block text-sm text-gray-400 mt-2 not-italic">
+          - Lansing Brown, Founder & Commissioner
+        </cite>
+      </section>
+
+      {/* How it works section */}
+      <section className="bg-cream py-12 px-6">
+        <h2 className="font-display font-bold text-2xl text-center mb-8">
+          Tee it Up in Three Steps
+        </h2>
+        <div className="space-y-8 max-w-lg mx-auto">
+          <div className="flex items-start gap-6">
+            <span className="font-display font-black text-6xl text-forest leading-none shrink-0 w-14 text-center">1</span>
+            <div className="pt-2">
+              <p className="font-bold text-lg text-gray-900">Get Invited</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Mini Golf Masters is invite-only. Reach out through the contact form to request a spot.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-6">
+            <span className="font-display font-black text-6xl text-forest leading-none shrink-0 w-14 text-center">2</span>
+            <div className="pt-2">
+              <p className="font-bold text-lg text-gray-900">Register for a Tournament</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Browse upcoming tournaments, submit your registration, and wait for the nod from the admin.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-6">
+            <span className="font-display font-black text-6xl text-forest leading-none shrink-0 w-14 text-center">3</span>
+            <div className="pt-2">
+              <p className="font-bold text-lg text-gray-900">Play. Score. Gloat.</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Enter scores hole by hole on your phone. Net scores (handicap-adjusted) determine the leaderboard. The bragging rights are permanent.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Public leaderboard CTA */}
+      <section className="bg-white py-12 px-6 text-center">
+        <h2 className="font-display font-bold text-2xl">The Receipts Are Public.</h2>
+        <p className="text-sm text-gray-500 mt-3 mb-6">
+          Anyone can see the leaderboard and score history. The good, the bad, the triple bogey on hole 7.
+        </p>
+        <Link
+          to="/tournaments"
+          className="inline-block bg-forest text-white font-semibold px-8 py-3 rounded-full hover:bg-emerald transition-colors"
+        >
+          View Leaderboards
         </Link>
       </section>
     </div>

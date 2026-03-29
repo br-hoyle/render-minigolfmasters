@@ -20,7 +20,13 @@ async function request(path, options = {}) {
     ...options.headers,
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers })
+  let res
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...options, headers })
+  } catch {
+    // Network error — Render free tier spins down after inactivity
+    throw new Error("Looks like the server took a mulligan. Give it a few seconds and try again. ⛳")
+  }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }))

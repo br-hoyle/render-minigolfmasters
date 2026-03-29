@@ -7,6 +7,7 @@ import auth
 import sheets
 
 bearer_scheme = HTTPBearer()
+bearer_scheme_optional = HTTPBearer(auto_error=False)
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> dict:
@@ -20,6 +21,23 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     # Attach role from token (not re-fetched from sheet per request)
+    user["role"] = payload["role"]
+    return user
+
+
+def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme_optional),
+) -> dict | None:
+    """Like get_current_user but returns None instead of 401 when no token is present."""
+    if not credentials:
+        return None
+    try:
+        payload = auth.decode_access_token(credentials.credentials)
+    except Exception:
+        return None
+    user = sheets.get_user_by_id(payload["sub"])
+    if not user:
+        return None
     user["role"] = payload["role"]
     return user
 

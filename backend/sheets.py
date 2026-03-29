@@ -100,6 +100,28 @@ def insert_course(row: dict) -> None:
     sheet.append_row([row.get(h, "") for h in headers])
 
 
+def update_course(course_id: str, updates: dict) -> None:
+    sheet = _get_sheet("courses")
+    records = sheet.get_all_records()
+    headers = sheet.row_values(1)
+    for i, record in enumerate(records, start=2):
+        if record["course_id"] == course_id:
+            for key, value in updates.items():
+                if key in headers:
+                    col = headers.index(key) + 1
+                    sheet.update_cell(i, col, value)
+            return
+
+
+def delete_course(course_id: str) -> None:
+    sheet = _get_sheet("courses")
+    records = sheet.get_all_records()
+    for i, record in enumerate(records, start=2):
+        if record["course_id"] == course_id:
+            sheet.delete_rows(i)
+            return
+
+
 # ---------------------------------------------------------------------------
 # Holes
 # ---------------------------------------------------------------------------
@@ -118,6 +140,28 @@ def insert_hole(row: dict) -> None:
     sheet.append_row([row.get(h, "") for h in headers])
 
 
+def update_hole(hole_id: str, updates: dict) -> None:
+    sheet = _get_sheet("holes")
+    records = sheet.get_all_records()
+    headers = sheet.row_values(1)
+    for i, record in enumerate(records, start=2):
+        if record["hole_id"] == hole_id:
+            for key, value in updates.items():
+                if key in headers:
+                    col = headers.index(key) + 1
+                    sheet.update_cell(i, col, value)
+            return
+
+
+def delete_hole(hole_id: str) -> None:
+    sheet = _get_sheet("holes")
+    records = sheet.get_all_records()
+    for i, record in enumerate(records, start=2):
+        if record["hole_id"] == hole_id:
+            sheet.delete_rows(i)
+            return
+
+
 # ---------------------------------------------------------------------------
 # Pars  (SCD)
 # ---------------------------------------------------------------------------
@@ -127,10 +171,12 @@ def get_all_pars() -> list[dict]:
 
 
 def get_pars_for_date(tournament_start_date: str) -> list[dict]:
-    """Return pars active on tournament_start_date (SCD lookup)."""
+    """Return pars active on tournament_start_date (SCD lookup).
+    Compares date portion only to support datetime-stored active_from values.
+    """
     return [
         p for p in get_all_pars()
-        if p["active_from"] <= tournament_start_date <= p["active_to"]
+        if str(p["active_from"])[:10] <= tournament_start_date <= str(p["active_to"])[:10]
     ]
 
 
@@ -164,7 +210,7 @@ def get_handicap_for_user_date(user_id: str, tournament_start_date: str) -> dict
         (
             h for h in get_all_handicaps()
             if h["user_id"] == user_id
-            and h["active_from"] <= tournament_start_date <= h["active_to"]
+            and str(h["active_from"])[:10] <= tournament_start_date <= str(h["active_to"])[:10]
         ),
         None,
     )

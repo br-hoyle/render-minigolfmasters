@@ -6,5 +6,6 @@ class Course(BaseModel):
     name: str
     address: str = ""
     description: str = ""
+    deleted_at: str = ""
 
     model_config = {"extra": "ignore"}

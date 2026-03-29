@@ -24,6 +24,9 @@
 hs_err_pid*
 replay_pid*
 
+# Node
+node_modules/
+
 ## PYTHON
 # Byte-compiled / optimized / DLL files
 __pycache__/

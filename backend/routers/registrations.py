@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 import sheets
-from dependencies import get_current_user
+from dependencies import get_current_user, get_current_user_optional
 from models.registration import Registration
 
 router = APIRouter()
@@ -22,12 +22,16 @@ class UpdateRegistrationRequest(BaseModel):
 @router.get("/", response_model=list[Registration])
 def list_registrations(
     tournament_id: str | None = None,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict | None = Depends(get_current_user_optional),
 ):
     if tournament_id:
+        # Public — tournament leaderboard / scores pages need this without auth
         regs = sheets.get_registrations_by_tournament(tournament_id)
-    else:
+    elif current_user:
         regs = sheets.get_registrations_by_user(current_user["user_id"])
+    else:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return [Registration(**r) for r in regs]
 
 
@@ -48,6 +52,16 @@ def create_registration(body: CreateRegistrationRequest, current_user: dict = De
     }
     sheets.insert_registration(row)
     return Registration(**row)
+
+
+@router.get("/{registration_id}", response_model=Registration)
+def get_registration(registration_id: str, current_user: dict = Depends(get_current_user)):
+    reg = sheets.get_registration_by_id(registration_id)
+    if not reg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    if reg["user_id"] != current_user["user_id"] and current_user["role"] != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return Registration(**reg)
 
 
 @router.patch("/{registration_id}", response_model=Registration)
