@@ -6,6 +6,7 @@ All routers call helper functions defined here.
 """
 
 import json
+import time
 from typing import Any
 
 import gspread
@@ -19,6 +20,40 @@ SCOPES = [
 
 _client: gspread.Client | None = None
 _spreadsheet: gspread.Spreadsheet | None = None
+
+# ---------------------------------------------------------------------------
+# In-memory TTL cache — reduces Sheets API calls from ~45 to ~20 per action
+# ---------------------------------------------------------------------------
+
+_CACHE_TTL: dict[str, int] = {
+    "scores":        15,   # Changes frequently during active tournaments
+    "registrations": 30,
+    "tournaments":   60,
+    "users":        120,
+    "rounds":       120,
+    "courses":      120,
+    "holes":        120,
+    "pars":         120,
+    "handicaps":    120,
+}
+
+_cache: dict[str, dict] = {}
+# Shape: { tab_name: {"data": list[dict], "ts": float} }
+
+
+def _get_cached(tab: str) -> list[dict]:
+    """Return cached data for tab if within TTL, otherwise fetch fresh from Sheets."""
+    entry = _cache.get(tab)
+    if entry and (time.monotonic() - entry["ts"]) < _CACHE_TTL[tab]:
+        return entry["data"]
+    fresh = _rows_to_dicts(_get_sheet(tab))
+    _cache[tab] = {"data": fresh, "ts": time.monotonic()}
+    return fresh
+
+
+def _invalidate(tab: str) -> None:
+    """Remove tab from cache so the next read fetches fresh data."""
+    _cache.pop(tab, None)
 
 
 def _get_spreadsheet() -> gspread.Spreadsheet:
@@ -45,7 +80,7 @@ def _rows_to_dicts(sheet: gspread.Worksheet) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def get_all_users() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("users"))
+    return _get_cached("users")
 
 
 def get_user_by_email(email: str) -> dict | None:
@@ -67,6 +102,7 @@ def insert_user(row: dict) -> None:
     sheet = _get_sheet("users")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("users")
 
 
 def update_user(user_id: str, updates: dict) -> None:
@@ -79,6 +115,7 @@ def update_user(user_id: str, updates: dict) -> None:
                 if key in headers:
                     col = headers.index(key) + 1
                     sheet.update_cell(i, col, value)
+            _invalidate("users")
             return
 
 
@@ -87,7 +124,7 @@ def update_user(user_id: str, updates: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_courses() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("courses"))
+    return _get_cached("courses")
 
 
 def get_course_by_id(course_id: str) -> dict | None:
@@ -98,6 +135,7 @@ def insert_course(row: dict) -> None:
     sheet = _get_sheet("courses")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("courses")
 
 
 def update_course(course_id: str, updates: dict) -> None:
@@ -110,6 +148,7 @@ def update_course(course_id: str, updates: dict) -> None:
                 if key in headers:
                     col = headers.index(key) + 1
                     sheet.update_cell(i, col, value)
+            _invalidate("courses")
             return
 
 
@@ -119,6 +158,7 @@ def delete_course(course_id: str) -> None:
     for i, record in enumerate(records, start=2):
         if record["course_id"] == course_id:
             sheet.delete_rows(i)
+            _invalidate("courses")
             return
 
 
@@ -127,7 +167,7 @@ def delete_course(course_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_holes() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("holes"))
+    return _get_cached("holes")
 
 
 def get_holes_by_course(course_id: str) -> list[dict]:
@@ -138,6 +178,7 @@ def insert_hole(row: dict) -> None:
     sheet = _get_sheet("holes")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("holes")
 
 
 def update_hole(hole_id: str, updates: dict) -> None:
@@ -150,6 +191,7 @@ def update_hole(hole_id: str, updates: dict) -> None:
                 if key in headers:
                     col = headers.index(key) + 1
                     sheet.update_cell(i, col, value)
+            _invalidate("holes")
             return
 
 
@@ -159,6 +201,7 @@ def delete_hole(hole_id: str) -> None:
     for i, record in enumerate(records, start=2):
         if record["hole_id"] == hole_id:
             sheet.delete_rows(i)
+            _invalidate("holes")
             return
 
 
@@ -167,7 +210,7 @@ def delete_hole(hole_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_pars() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("pars"))
+    return _get_cached("pars")
 
 
 def get_pars_for_date(tournament_start_date: str) -> list[dict]:
@@ -184,6 +227,7 @@ def insert_par(row: dict) -> None:
     sheet = _get_sheet("pars")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("pars")
 
 
 def close_par(par_id: str, active_to: str) -> None:
@@ -194,6 +238,7 @@ def close_par(par_id: str, active_to: str) -> None:
     for i, record in enumerate(records, start=2):
         if record["par_id"] == par_id:
             sheet.update_cell(i, col, active_to)
+            _invalidate("pars")
             return
 
 
@@ -202,7 +247,7 @@ def close_par(par_id: str, active_to: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_handicaps() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("handicaps"))
+    return _get_cached("handicaps")
 
 
 def get_handicap_for_user_date(user_id: str, tournament_start_date: str) -> dict | None:
@@ -220,6 +265,7 @@ def insert_handicap(row: dict) -> None:
     sheet = _get_sheet("handicaps")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("handicaps")
 
 
 def close_handicap(handicap_id: str, active_to: str) -> None:
@@ -230,6 +276,7 @@ def close_handicap(handicap_id: str, active_to: str) -> None:
     for i, record in enumerate(records, start=2):
         if record["handicap_id"] == handicap_id:
             sheet.update_cell(i, col, active_to)
+            _invalidate("handicaps")
             return
 
 
@@ -238,7 +285,7 @@ def close_handicap(handicap_id: str, active_to: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_tournaments() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("tournaments"))
+    return _get_cached("tournaments")
 
 
 def get_tournament_by_id(tournament_id: str) -> dict | None:
@@ -249,6 +296,7 @@ def insert_tournament(row: dict) -> None:
     sheet = _get_sheet("tournaments")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("tournaments")
 
 
 def update_tournament(tournament_id: str, updates: dict) -> None:
@@ -261,6 +309,7 @@ def update_tournament(tournament_id: str, updates: dict) -> None:
                 if key in headers:
                     col = headers.index(key) + 1
                     sheet.update_cell(i, col, value)
+            _invalidate("tournaments")
             return
 
 
@@ -269,7 +318,7 @@ def update_tournament(tournament_id: str, updates: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_rounds() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("rounds"))
+    return _get_cached("rounds")
 
 
 def get_rounds_by_tournament(tournament_id: str) -> list[dict]:
@@ -284,6 +333,7 @@ def insert_round(row: dict) -> None:
     sheet = _get_sheet("rounds")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("rounds")
 
 
 def update_round(round_id: str, updates: dict) -> None:
@@ -296,6 +346,7 @@ def update_round(round_id: str, updates: dict) -> None:
                 if key in headers:
                     col = headers.index(key) + 1
                     sheet.update_cell(i, col, value)
+            _invalidate("rounds")
             return
 
 
@@ -305,6 +356,7 @@ def delete_round(round_id: str) -> None:
     for i, record in enumerate(records, start=2):
         if record["round_id"] == round_id:
             sheet.delete_rows(i)
+            _invalidate("rounds")
             return
 
 
@@ -313,7 +365,7 @@ def delete_round(round_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_registrations() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("registrations"))
+    return _get_cached("registrations")
 
 
 def get_registrations_by_tournament(tournament_id: str) -> list[dict]:
@@ -332,6 +384,7 @@ def insert_registration(row: dict) -> None:
     sheet = _get_sheet("registrations")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("registrations")
 
 
 def update_registration(registration_id: str, updates: dict) -> None:
@@ -344,6 +397,7 @@ def update_registration(registration_id: str, updates: dict) -> None:
                 if key in headers:
                     col = headers.index(key) + 1
                     sheet.update_cell(i, col, value)
+            _invalidate("registrations")
             return
 
 
@@ -352,7 +406,7 @@ def update_registration(registration_id: str, updates: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_scores() -> list[dict]:
-    return _rows_to_dicts(_get_sheet("scores"))
+    return _get_cached("scores")
 
 
 def get_scores_by_registration(registration_id: str) -> list[dict]:
@@ -371,6 +425,7 @@ def insert_score(row: dict) -> None:
     sheet = _get_sheet("scores")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("scores")
 
 
 def update_score(score_id: str, updates: dict) -> None:
@@ -383,6 +438,7 @@ def update_score(score_id: str, updates: dict) -> None:
                 if key in headers:
                     col = headers.index(key) + 1
                     sheet.update_cell(i, col, value)
+            _invalidate("scores")
             return
 
 
