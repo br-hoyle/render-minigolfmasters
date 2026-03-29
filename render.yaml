@@ -26,7 +26,7 @@ services:
       - key: FRONTEND_URL
         sync: false
 
-  - type: static
+  - type: web
     name: minigolfmasters-web
     rootDir: frontend
     buildCommand: npm install && npm run build
