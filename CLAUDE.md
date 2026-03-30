@@ -30,13 +30,13 @@ render-minigolfmasters/
 ├── backend/
 │   ├── main.py                  # FastAPI app entry point
 │   ├── config.py                # Environment variables, settings
-│   ├── sheets.py                # Google Sheets read/write abstraction layer
+│   ├── sheets.py                # Google Sheets read/write abstraction layer (includes in-memory TTL cache)
 │   ├── auth.py                  # JWT creation, validation, invite token logic
 │   ├── dependencies.py          # FastAPI dependencies (get_current_user, require_admin, require_tournament_admin)
 │   │
 │   ├── routers/
-│   │   ├── auth.py              # POST /login, POST /accept-invite, POST /reset-password
-│   │   ├── users.py             # GET/POST /users, POST /users/invite
+│   │   ├── auth.py              # POST /login, POST /accept-invite, POST /reset-password, POST /reset-password-by-token
+│   │   ├── users.py             # GET/POST /users, POST /users/invite, PATCH /users/me
 │   │   ├── tournaments.py       # GET/POST /tournaments, GET /tournaments/{id}
 │   │   ├── registrations.py     # GET/POST /registrations, PATCH /registrations/{id}
 │   │   ├── rounds.py            # GET/POST /rounds, rounds per tournament
@@ -77,22 +77,31 @@ render-minigolfmasters/
 │   │   ├── components/
 │   │   │   ├── Layout.jsx       # Mobile shell, bottom tab nav
 │   │   │   ├── ProtectedRoute.jsx
-│   │   │   └── ScoreStepper.jsx # Large +/- tap input for hole scores (most important UI component)
+│   │   │   ├── ScoreStepper.jsx # Large +/- tap input for hole scores (most important UI component)
+│   │   │   ├── Banner.jsx       # Reusable image banner (used on Leaderboards page)
+│   │   │   └── Dialog.jsx       # Reusable modal/dialog (used in invite, forfeit, and confirm flows)
 │   │   │
 │   │   ├── pages/
 │   │   │   ├── Home.jsx         # Public marketing page — story, about, latest tournament highlight
 │   │   │   ├── Contact.jsx      # Public contact form + founder/organizer info
 │   │   │   ├── Login.jsx
 │   │   │   ├── AcceptInvite.jsx
-│   │   │   ├── Tournaments.jsx  # All tournaments (public) + "My Registrations" for logged-in users
-│   │   │   ├── Scorecard.jsx    # Score entry — reached via "Add Scores" CTA on My Registrations
-│   │   │   ├── Leaderboard.jsx  # Tournament leaderboard (public)
+│   │   │   ├── ResetPassword.jsx  # Password reset via token (public)
+│   │   │   ├── Tournaments.jsx  # All tournaments (public)
+│   │   │   ├── Leaderboards.jsx # Public list of all active/complete tournaments with search & filter
+│   │   │   ├── Leaderboard.jsx  # Single tournament leaderboard (public)
+│   │   │   ├── RoundScores.jsx  # Per-round scores view (public)
 │   │   │   ├── History.jsx      # All scores, all years, all players (public)
+│   │   │   ├── Registrations.jsx # "My Registrations" — player's registrations with status filter
+│   │   │   ├── RoundSelect.jsx  # Intermediate page: player selects which round to score
+│   │   │   ├── Scorecard.jsx    # Score entry — reached after round selection
+│   │   │   ├── Profile.jsx      # Authenticated user profile — view/update phone, change password, view handicap
 │   │   │   └── admin/
 │   │   │       ├── Dashboard.jsx
-│   │   │       ├── ManageTournament.jsx  # Create tournament, manage rounds, review/accept/reject/forfeit registrations
-│   │   │       ├── ManageCourses.jsx     # Create courses & holes, update pars
-│   │   │       └── ManageUsers.jsx       # Invite/remove users, update roles, set handicaps
+│   │   │       ├── ManageTournament.jsx    # Create tournament, manage rounds, review/accept/reject/forfeit registrations
+│   │   │       ├── ManageCourses.jsx       # Create courses & holes, update pars
+│   │   │       ├── ManageUsers.jsx         # Invite/deactivate users, update roles, set handicaps
+│   │   │       └── AdminRoundScores.jsx    # Admin view/override of player scores per round
 │   │
 │   ├── package.json
 │   └── vite.config.js
@@ -157,7 +166,7 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 
 | Tab | Key Columns |
 |---|---|
-| `users` | user_id, first_name, last_name, email, password_hash, invite_token, role, created_at |
+| `users` | user_id, first_name, last_name, email, phone, password_hash, invite_token, role, status, created_at |
 | `courses` | course_id, name, address, description |
 | `holes` | hole_id, course_id, hole_number |
 | `pars` | par_id, hole_id, par_strokes, active_from, active_to |
@@ -176,6 +185,7 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 - **Rounds** represent one play-through of a course within a tournament. Course A × 2 = two round records. Labels should be human-readable, e.g. "Course A – Round 1".
 - **Registration statuses:** `in_review` → `accepted` or `rejected`. Accepted registrations can later become `forfeit`. Forfeiting requires a confirmation dialog before proceeding.
 - **Forfeit players** remain on the leaderboard but are visually marked as forfeit and sorted to the bottom regardless of score.
+- **User status:** `active` | `inactive`. Inactive users cannot log in. Admins deactivate users rather than deleting them.
 
 ---
 
@@ -183,6 +193,7 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 
 - **Invite-only accounts.** Only global admins can send invites.
 - Invite flow: Admin enters name + email + role in ManageUsers → app generates a unique invite token → emails a signup link → user clicks link → sets password → account activated.
+- **Password reset flow:** Admin triggers a reset link for a user → user clicks link → sets new password via `POST /auth/reset-password-by-token`. No account creation involved.
 - Passwords stored as **bcrypt hashes**, never plaintext.
 - Sessions use **JWTs** stored client-side (localStorage), sent as Bearer tokens on every API request.
 - Role is embedded in the JWT payload: `player` or `admin`.
@@ -190,6 +201,7 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
   - `get_current_user` — any authenticated user
   - `require_admin` — global admin only
   - `require_tournament_admin` — must be the `tournament_admin_id` for the specific tournament, or a global admin
+- **User profile self-service:** Authenticated users can update their own phone number and change their password via `PATCH /users/me`.
 
 ---
 
@@ -207,6 +219,7 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 | Submit own scores (active tournament only) | ❌ | ✅ | ✅ | ✅ |
 | Edit own scores (active tournament only) | ❌ | ✅ | ✅ | ✅ |
 | Forfeit own registration | ❌ | ✅ | ✅ | ✅ |
+| Update own profile (phone, password) | ❌ | ✅ | ✅ | ✅ |
 | Override any player's scores | ❌ | ❌ | ✅ (own tournament) | ✅ |
 | Edit tournament details & rounds | ❌ | ❌ | ✅ (own tournament) | ✅ |
 | Accept / reject / forfeit registrations | ❌ | ❌ | ✅ (own tournament) | ✅ |
@@ -214,6 +227,7 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 | Create tournaments | ❌ | ❌ | ❌ | ✅ |
 | Manage courses, holes, pars | ❌ | ❌ | ❌ | ✅ |
 | Set player handicaps | ❌ | ❌ | ❌ | ✅ |
+| Deactivate / reactivate users | ❌ | ❌ | ❌ | ✅ |
 
 ### Score Submission Rules
 
@@ -223,11 +237,37 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 
 ---
 
-## Tournaments Page
+## Tournaments Page (`/tournaments`)
 
-- **Public section:** All tournaments listed (upcoming, active, complete) — visible to everyone.
-- **"My Registrations" section:** Shown only to logged-in users. Lists all tournaments the user has registered for with their registration status (`in_review`, `accepted`, `rejected`, `forfeit`).
-- **CTA per registration:** Accepted registrations for an `active` tournament show an "Add Scores" button navigating to the Scorecard for that tournament.
+- Public. Lists all tournaments (upcoming, active, complete).
+- No registration management here — that moved to the dedicated Registrations page.
+
+## Leaderboards Page (`/leaderboards`)
+
+- Public. Searchable, filterable list of all active and complete tournaments.
+- Each card links to the tournament's full leaderboard at `/leaderboard/:tournamentId`.
+- Features a Banner image at the top.
+
+## Leaderboard Page (`/leaderboard/:tournamentId`)
+
+- Public. Full standings for one tournament: gross and net scores, color-coded by par.
+- Links to per-round score views at `/leaderboard/:tournamentId/round/:roundId`.
+- Forfeit players marked visually and sorted to the bottom.
+
+## Round Scores Page (`/leaderboard/:tournamentId/round/:roundId`)
+
+- Public. Shows all player scores for a specific round, hole by hole.
+
+## Registrations Page (`/registrations`)
+
+- Player-only. Lists all of the logged-in user's registrations across all tournaments.
+- Filterable by status (`in_review`, `accepted`, `rejected`, `forfeit`).
+- Accepted registrations for an `active` tournament show an "Add Scores" button → `/scorecard/:registrationId`.
+
+## Profile Page (`/profile`)
+
+- Player-only. Displays the user's name, email, current handicap, and phone number.
+- Users can update their phone number and change their password from this page.
 
 ---
 
@@ -314,24 +354,57 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 
 ---
 
+## Routing
+
+| Path | Access | Component |
+|---|---|---|
+| `/` | Public | Home |
+| `/contact` | Public | Contact |
+| `/login` | Public | Login |
+| `/accept-invite` | Public | AcceptInvite |
+| `/reset-password` | Public | ResetPassword |
+| `/tournaments` | Public | Tournaments |
+| `/leaderboards` | Public | Leaderboards |
+| `/leaderboard/:tournamentId` | Public | Leaderboard |
+| `/leaderboard/:tournamentId/round/:roundId` | Public | RoundScores |
+| `/history` | Public | History |
+| `/registrations` | Player | Registrations |
+| `/profile` | Player | Profile |
+| `/scorecard/:registrationId` | Player | Scorecard (round select) |
+| `/scorecard/:registrationId/:roundId` | Player | Scorecard (score entry) |
+| `/admin` | Admin | Dashboard |
+| `/admin/tournaments/:tournamentId` | Admin | ManageTournament |
+| `/admin/tournaments/:tournamentId/rounds/:roundId/scores` | Admin | AdminRoundScores |
+| `/admin/courses` | Admin | ManageCourses |
+| `/admin/users` | Admin | ManageUsers |
+
+---
+
 ## Page Titles
 
-Set via a `usePageTitle` hook or `document.title` in each page component. Format: `{Page} | Mini Golf Masters`.
+Set via `document.title` in each page component. Format: `{Page} | Mini Golf Masters`.
 
 | Page | Title |
 |---|---|
 | Home | `Mini Golf Masters` |
 | Tournaments | `Tournaments \| Mini Golf Masters` |
+| Leaderboards | `Leaderboards \| Mini Golf Masters` |
 | Leaderboard | `Leaderboard \| Mini Golf Masters` |
+| Round Scores | `Round Scores \| Mini Golf Masters` |
 | History | `History \| Mini Golf Masters` |
 | Contact | `Contact \| Mini Golf Masters` |
 | Login | `Login \| Mini Golf Masters` |
 | Accept Invite | `Create Account \| Mini Golf Masters` |
+| Reset Password | `Reset Password \| Mini Golf Masters` |
+| Registrations | `My Registrations \| Mini Golf Masters` |
+| Select Round | `Select Round \| Mini Golf Masters` |
 | Scorecard | `Scorecard \| Mini Golf Masters` |
+| Profile | `Profile \| Mini Golf Masters` |
 | Admin Dashboard | `Admin \| Mini Golf Masters` |
 | Manage Tournament | `Manage Tournament \| Mini Golf Masters` |
 | Manage Courses | `Manage Courses \| Mini Golf Masters` |
 | Manage Users | `Manage Users \| Mini Golf Masters` |
+| Admin Round Scores | `Round Scores \| Mini Golf Masters` |
 
 ---
 

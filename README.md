@@ -10,11 +10,12 @@ Built to run for free. Designed to last for years.
 
 - **Tournament management** — create tournaments, set up rounds across multiple courses, manage the field
 - **Live score entry** — mobile-optimized scorecard with large tap targets, built for a golf course in sunlight
--**Live leaderboard** — real-time standings with gross and net scores (handicap-adjusted), color-coded by par
--**Score history** — every score, every hole, every player, every year — all public
--**Invite-only accounts** — players are invited by email; no open registration
--**Role-based access** — players, tournament admins, and global admins each have distinct permissions
--**Contact form** — public inquiry form delivered directly to organizers by email
+- **Live leaderboard** — real-time standings with gross and net scores (handicap-adjusted), color-coded by par
+- **Score history** — every score, every hole, every player, every year — all public
+- **Invite-only accounts** — players are invited by email; no open registration
+- **Role-based access** — players, tournament admins, and global admins each have distinct permissions
+- **User profiles** — players can update their phone number and change their password from a self-service profile page
+- **Contact form** — public inquiry form delivered directly to organizers by email
 
 ---
 
@@ -51,8 +52,8 @@ render-minigolfmasters/
 │   └── src/
 │       ├── api/           # API client (attaches JWT to every request)
 │       ├── context/       # Auth context
-│       ├── components/    # Layout, ScoreStepper, ProtectedRoute
-│       └── pages/         # All pages including admin/
+│       ├── components/    # Layout, ScoreStepper, ProtectedRoute, Banner, Dialog
+│       └── pages/         # All pages including admin/ (19 pages total)
 ├── .env.example
 ├── render.yaml            # Deploys both services from one repo
 └── CLAUDE.md              # Full project context for AI-assisted development
@@ -109,7 +110,7 @@ Create a new Google Spreadsheet and add the following tabs with these exact colu
 
 | Tab | Columns |
 |---|---|
-| `users` | user_id, first_name, last_name, email, password_hash, invite_token, role, created_at |
+| `users` | user_id, first_name, last_name, email, phone, password_hash, invite_token, role, status, created_at |
 | `courses` | course_id, name, address, description |
 | `holes` | hole_id, course_id, hole_number |
 | `pars` | par_id, hole_id, par_strokes, active_from, active_to |
@@ -177,7 +178,7 @@ The Hobby tier supports up to 2 custom domains. To use your own domain (e.g. `mi
 | **Public** | Can view leaderboards, score history, and submit contact forms. No account required. |
 | **Player** | Invited users. Can register for tournaments, submit and edit their own scores, and forfeit their own registration. |
 | **Tournament Admin** | The global admin who created a specific tournament. Can manage that tournament's rounds, accept/reject/forfeit registrations, and override scores. |
-| **Global Admin** | Full access. Invites users, creates tournaments, manages courses, pars, and handicaps. |
+| **Global Admin** | Full access. Invites users, deactivates accounts, creates tournaments, manages courses, pars, and handicaps. |
 
 ---
 
