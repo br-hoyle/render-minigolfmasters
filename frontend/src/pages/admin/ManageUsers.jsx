@@ -63,8 +63,12 @@ export default function ManageUsers() {
     setInviteSuccess(null)
     setInviteError(null)
     try {
-      await api.post('/users/invite', invite)
-      setInviteSuccess(`Invite sent to ${invite.email}`)
+      const data = await api.post('/users/invite', invite)
+      if (data.email_sent === false) {
+        setInviteSuccess(`User created! Email delivery failed — share this link manually: ${data.invite_url}`)
+      } else {
+        setInviteSuccess(`Invite sent to ${invite.email} ✓`)
+      }
       setInvite({ first_name: '', last_name: '', email: '', phone: '', role: 'player' })
       const us = await api.get('/users/')
       setUsers(us)

@@ -96,9 +96,13 @@ def invite_user(body: InviteRequest, current_user: dict = Depends(require_admin)
     })
 
     invite_url = f"{FRONTEND_URL}/accept-invite?token={token}"
-    _send_invite_email(body.email, body.first_name, invite_url)
+    email_sent = True
+    try:
+        _send_invite_email(body.email, body.first_name, invite_url)
+    except Exception:
+        email_sent = False
 
-    return {"detail": "Invite sent", "user_id": user_id}
+    return {"detail": "Invite sent", "user_id": user_id, "email_sent": email_sent, "invite_url": invite_url}
 
 
 @router.patch("/{user_id}", response_model=User)
@@ -125,6 +129,6 @@ def _send_invite_email(to_email: str, first_name: str, invite_url: str) -> None:
     msg["From"] = ADMIN_EMAIL
     msg["To"] = to_email
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
         smtp.login(ADMIN_EMAIL, GMAIL_APP_PASSWORD)
         smtp.send_message(msg)
