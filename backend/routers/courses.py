@@ -114,3 +114,36 @@ def delete_course(course_id: str, _: dict = Depends(require_admin)):
     if not c:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
     sheets.update_course(course_id, {"deleted_at": datetime.now(tz=timezone.utc).isoformat()})
+
+
+@router.get("/{course_id}/stats")
+def get_course_stats(course_id: str):
+    """Return per-hole difficulty stats: avg strokes and avg vs par."""
+    holes = sheets.get_holes_by_course(course_id)
+    if not holes:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found or has no holes")
+
+    all_pars = sheets.get_all_pars()
+    # Use always-active pars (active_to == 9999-12-31) as baseline
+    active_pars = {p["hole_id"]: int(p["par_strokes"]) for p in all_pars if str(p.get("active_to", ""))[:10] == "9999-12-31"}
+
+    all_scores = sheets.get_all_scores()
+    hole_ids = {h["hole_id"] for h in holes}
+    relevant_scores = [s for s in all_scores if s["hole_id"] in hole_ids]
+
+    result = []
+    for hole in sorted(holes, key=lambda h: int(h["hole_number"])):
+        hid = hole["hole_id"]
+        par = active_pars.get(hid)
+        hole_scores = [int(s["strokes"]) for s in relevant_scores if s["hole_id"] == hid and s.get("strokes")]
+        avg_strokes = round(sum(hole_scores) / len(hole_scores), 2) if hole_scores else None
+        avg_vs_par = round(avg_strokes - par, 2) if avg_strokes is not None and par is not None else None
+        result.append({
+            "hole_id": hid,
+            "hole_number": hole["hole_number"],
+            "par": par,
+            "avg_strokes": avg_strokes,
+            "avg_vs_par": avg_vs_par,
+            "score_count": len(hole_scores),
+        })
+    return result

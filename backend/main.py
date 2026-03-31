@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import FRONTEND_URL
-from routers import auth, users, tournaments, registrations, rounds, courses, pars, handicaps, scores, contact
+from routers import auth, users, tournaments, registrations, rounds, courses, pars, handicaps, scores, contact, handicap_requests
 
 app = FastAPI(title="Mini Golf Masters API")
 
@@ -24,6 +24,7 @@ app.include_router(pars.router, prefix="/pars", tags=["pars"])
 app.include_router(handicaps.router, prefix="/handicaps", tags=["handicaps"])
 app.include_router(scores.router, prefix="/scores", tags=["scores"])
 app.include_router(contact.router, prefix="/contact", tags=["contact"])
+app.include_router(handicap_requests.router, prefix="/handicap-requests", tags=["handicap-requests"])
 
 
 @app.get("/health")

@@ -26,15 +26,17 @@ _spreadsheet: gspread.Spreadsheet | None = None
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL: dict[str, int] = {
-    "scores":        15,   # Changes frequently during active tournaments
-    "registrations": 30,
-    "tournaments":   60,
-    "users":        120,
-    "rounds":       120,
-    "courses":      120,
-    "holes":        120,
-    "pars":         120,
-    "handicaps":    120,
+    "scores":            15,   # Changes frequently during active tournaments
+    "registrations":     30,
+    "handicap_requests": 30,
+    "tournaments":       60,
+    "score_audit_log":   60,
+    "users":            120,
+    "rounds":           120,
+    "courses":          120,
+    "holes":            120,
+    "pars":             120,
+    "handicaps":        120,
 }
 
 _cache: dict[str, dict] = {}
@@ -442,8 +444,8 @@ def update_score(score_id: str, updates: dict) -> None:
             return
 
 
-def upsert_score(registration_id: str, round_id: str, hole_id: str, updates: dict) -> None:
-    """Update an existing score or insert if not found."""
+def upsert_score(registration_id: str, round_id: str, hole_id: str, updates: dict) -> dict | None:
+    """Update an existing score or insert if not found. Returns the existing record before update (or None if new)."""
     scores = get_all_scores()
     existing = next(
         (s for s in scores if s["registration_id"] == registration_id
@@ -451,6 +453,62 @@ def upsert_score(registration_id: str, round_id: str, hole_id: str, updates: dic
         None,
     )
     if existing:
+        # Increment version on update
+        new_version = int(existing.get("version") or 1) + 1
+        updates["version"] = new_version
         update_score(existing["score_id"], updates)
+        return existing
     else:
+        if "version" not in updates:
+            updates["version"] = 1
         insert_score(updates)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Score Audit Log
+# ---------------------------------------------------------------------------
+
+def get_score_audit_logs_by_score(score_id: str) -> list[dict]:
+    all_logs = _get_cached("score_audit_log")
+    return [log for log in all_logs if log["score_id"] == score_id]
+
+
+def insert_score_audit_log(row: dict) -> None:
+    sheet = _get_sheet("score_audit_log")
+    headers = sheet.row_values(1)
+    sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("score_audit_log")
+
+
+# ---------------------------------------------------------------------------
+# Handicap Requests
+# ---------------------------------------------------------------------------
+
+def get_all_handicap_requests() -> list[dict]:
+    return _get_cached("handicap_requests")
+
+
+def get_handicap_requests_by_user(user_id: str) -> list[dict]:
+    return [r for r in get_all_handicap_requests() if r["user_id"] == user_id]
+
+
+def insert_handicap_request(row: dict) -> None:
+    sheet = _get_sheet("handicap_requests")
+    headers = sheet.row_values(1)
+    sheet.append_row([row.get(h, "") for h in headers])
+    _invalidate("handicap_requests")
+
+
+def update_handicap_request(request_id: str, updates: dict) -> None:
+    sheet = _get_sheet("handicap_requests")
+    records = sheet.get_all_records()
+    headers = sheet.row_values(1)
+    for i, record in enumerate(records, start=2):
+        if record["request_id"] == request_id:
+            for key, value in updates.items():
+                if key in headers:
+                    col = headers.index(key) + 1
+                    sheet.update_cell(i, col, value)
+            _invalidate("handicap_requests")
+            return

@@ -9,6 +9,17 @@ function fmtDate(d) {
   return `${m}/${day}/${y}`
 }
 
+function timeAgo(isoStr) {
+  if (!isoStr) return '—'
+  const diff = Date.now() - new Date(isoStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 const STATUS_FILTER_OPTIONS = ['All', 'Upcoming', 'Active', 'Complete']
 
 export default function Dashboard() {
@@ -18,6 +29,7 @@ export default function Dashboard() {
 
   const navigate = useNavigate()
   const [tournaments, setTournaments] = useState([])
+  const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [newT, setNewT] = useState({ name: '', start_date: '', end_date: '', entry_fee: '' })
@@ -26,8 +38,12 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState('All')
 
   useEffect(() => {
-    api.get('/tournaments/').then((ts) => {
+    Promise.all([
+      api.get('/tournaments/'),
+      api.get('/tournaments/admin/stats').catch(() => null),
+    ]).then(([ts, s]) => {
       setTournaments(ts)
+      setStats(s)
       setLoading(false)
     })
   }, [])
@@ -68,6 +84,39 @@ export default function Dashboard() {
 
       {/* Title */}
       <h1 className="font-display font-black text-4xl text-gray-900">Admin Portal</h1>
+
+      {/* Stat cards */}
+      {stats && (
+        <div className="grid grid-cols-2 gap-3">
+          <Link
+            to="/admin"
+            className="bg-white border border-silver rounded-xl p-4 hover:border-forest transition-colors"
+          >
+            <p className="text-2xl font-display font-black text-gray-900">{stats.pending_registrations ?? 0}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Pending Registrations</p>
+          </Link>
+          <Link
+            to="/admin"
+            className="bg-white border border-silver rounded-xl p-4 hover:border-forest transition-colors"
+          >
+            <p className="text-2xl font-display font-black text-gray-900">{stats.active_tournaments ?? 0}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Active Tournaments</p>
+          </Link>
+          <div className="bg-white border border-silver rounded-xl p-4">
+            <p className="text-2xl font-display font-black text-gray-900 truncate">
+              {timeAgo(stats.last_score_submitted_at)}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Last Score</p>
+          </div>
+          <Link
+            to="/admin/users"
+            className="bg-white border border-silver rounded-xl p-4 hover:border-forest transition-colors"
+          >
+            <p className="text-2xl font-display font-black text-gray-900">{stats.pending_handicap_requests ?? 0}</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Handicap Requests</p>
+          </Link>
+        </div>
+      )}
 
       {/* Quick nav buttons */}
       <div className="grid grid-cols-2 gap-3">

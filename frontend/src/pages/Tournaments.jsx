@@ -152,13 +152,23 @@ export default function Tournaments() {
                 </div>
                 <div className="shrink-0 flex flex-col gap-2 items-end">
                   {t.status === 'upcoming' ? (
-                    <Link
-                      to="/contact"
-                      onClick={(e) => e.stopPropagation()}
-                      className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors block text-center"
-                    >
-                      Contact Us
-                    </Link>
+                    user ? (
+                      <Link
+                        to="/registrations"
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors block text-center"
+                      >
+                        Register
+                      </Link>
+                    ) : (
+                      <Link
+                        to={`/contact?subject=${encodeURIComponent(`${t.name} Inquiry`)}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors block text-center"
+                      >
+                        Contact Us
+                      </Link>
+                    )
                   ) : (
                     <Link
                       to={`/leaderboard/${t.tournament_id}`}

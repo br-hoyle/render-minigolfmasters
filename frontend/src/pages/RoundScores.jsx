@@ -17,6 +17,7 @@ export default function RoundScores() {
   const [error, setError] = useState(null)
   const [leaderboardOpen, setLeaderboardOpen] = useState(true)
   const [handicapOn, setHandicapOn] = useState(true)
+  const [courseStats, setCourseStats] = useState(null) // hole_id -> { avg_strokes, avg_vs_par }
 
   useEffect(() => {
     async function load() {
@@ -51,6 +52,14 @@ export default function RoundScores() {
         const roundScores = scores.filter((s) => s.round_id === roundId)
 
         setData({ tournament, round, holes, roundScores, users, registrations, parMap, handicaps })
+
+        // Fetch course stats for avg row (non-blocking)
+        if (round?.course_id) {
+          api.get(`/courses/${round.course_id}/stats`).then((stats) => {
+            const map = Object.fromEntries(stats.map((s) => [s.hole_id, s]))
+            setCourseStats(map)
+          }).catch(() => {})
+        }
       } catch (err) {
         setError(err.message || 'Failed to load')
       } finally {
@@ -247,6 +256,26 @@ export default function RoundScores() {
                     </td>
                   ))}
                 </tr>
+                {courseStats && (
+                  <tr className="bg-gray-50">
+                    <td className="text-left px-4 py-2 font-semibold text-gray-500 text-xs sticky left-0 bg-gray-50">Avg</td>
+                    {holes.map((h) => {
+                      const stat = courseStats[h.hole_id]
+                      const avg = stat?.avg_vs_par
+                      const avgStr = stat?.avg_strokes != null ? stat.avg_strokes.toFixed(1) : '—'
+                      const colorClass =
+                        avg == null ? 'text-gray-400' :
+                        avg < 0 ? 'text-[#079E78]' :
+                        avg === 0 ? 'text-gray-500' :
+                        'text-[#CC0131]'
+                      return (
+                        <td key={h.hole_id} className={`text-center px-3 py-1.5 text-xs font-semibold ${colorClass}`}>
+                          {avgStr}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )}
               </thead>
               <tbody>
                 {playerRows.map((player, i) => (

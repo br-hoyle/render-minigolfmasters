@@ -6,7 +6,7 @@ This file provides full context for every Claude Code session. Read it completel
 
 ## Project Overview
 
-**Mini Golf Masters** is an invite-only, mobile-first web app for managing an mini golf tournaments among a small-ish community. It tracks scores hole-by-hole, manages tournament setup, and preserves history.
+**Mini Golf Masters** is an invite-only, mobile-first web app for managing mini golf tournaments among a small-ish community. It tracks scores hole-by-hole, manages tournament setup, and preserves history.
 
 The app needs to be essentially free to run. It is hosted on Render's free tier using Google Sheets as the database.
 
@@ -18,7 +18,7 @@ The app needs to be essentially free to run. It is hosted on Render's free tier 
 - **Backend:** Render Free Web Service (FastAPI/Python) — root directory `backend/`, spins down after 15 min inactivity, acceptable for this use case
 - **Frontend:** Render Static Site (React + Vite) — root directory `frontend/`, always on, free
 - **Database:** Google Sheets via Google Sheets API (service account auth)
-- **Email:** Python `smtplib` via Gmail App Password (stored as env var) — used for invites and contact form notifications. No third-party email service.
+- **Email:** Python `smtplib` via Gmail App Password (stored as env var). All email flows go through `backend/email_utils.py`. No third-party email service.
 
 ---
 
@@ -32,29 +32,36 @@ render-minigolfmasters/
 │   ├── config.py                # Environment variables, settings
 │   ├── sheets.py                # Google Sheets read/write abstraction layer (includes in-memory TTL cache)
 │   ├── auth.py                  # JWT creation, validation, invite token logic
+│   ├── email_utils.py           # Centralized email sender — send_email(to, subject, body, reply_to=None)
 │   ├── dependencies.py          # FastAPI dependencies (get_current_user, require_admin, require_tournament_admin)
 │   │
 │   ├── routers/
 │   │   ├── auth.py              # POST /login, POST /accept-invite, POST /reset-password, POST /reset-password-by-token
-│   │   ├── users.py             # GET/POST /users, POST /users/invite, PATCH /users/me
-│   │   ├── tournaments.py       # GET/POST /tournaments, GET /tournaments/{id}
-│   │   ├── registrations.py     # GET/POST /registrations, PATCH /registrations/{id}
-│   │   ├── rounds.py            # GET/POST /rounds, rounds per tournament
-│   │   ├── courses.py           # GET/POST /courses, holes per course
-│   │   ├── pars.py              # GET/POST /pars (resolved by tournament start_date)
+│   │   ├── users.py             # GET/POST /users, POST /users/invite, PATCH /users/me, GET /users/{id}/championships
+│   │   ├── tournaments.py       # GET/POST /tournaments, GET /tournaments/{id}, GET /tournaments/{id}/recap,
+│   │   │                        # POST /tournaments/{id}/announce, GET /tournaments/admin/stats
+│   │   ├── registrations.py     # GET/POST /registrations, PATCH /registrations/{id}, PATCH /registrations/bulk
+│   │   ├── rounds.py            # GET/POST /rounds, PATCH /rounds/{id}/lock
+│   │   ├── courses.py           # GET/POST /courses, holes per course, GET /courses/{id}/stats
+│   │   ├── pars.py              # GET/POST /pars (resolved by tournament start_date), POST /pars/bulk
 │   │   ├── handicaps.py         # GET/POST /handicaps (resolved by tournament start_date)
-│   │   └── scores.py            # GET/POST/PATCH /scores
+│   │   ├── handicap_requests.py # POST /handicap-requests/, GET /handicap-requests/me, GET /handicap-requests/,
+│   │   │                        # PATCH /handicap-requests/{id}
+│   │   ├── scores.py            # GET/POST /scores, PATCH /scores/{id}, GET /scores/{id}/audit
+│   │   └── contact.py           # POST /contact
 │   │
 │   ├── models/
 │   │   ├── user.py
-│   │   ├── tournament.py
+│   │   ├── tournament.py        # Includes max_players: str, registration_deadline: str
 │   │   ├── registration.py
-│   │   ├── round.py
+│   │   ├── round.py             # Includes locked: str
 │   │   ├── course.py
 │   │   ├── hole.py
-│   │   ├── score.py
+│   │   ├── score.py             # Includes version: int
 │   │   ├── par.py
-│   │   └── handicap.py
+│   │   ├── handicap.py
+│   │   ├── score_audit_log.py   # audit_id, score_id, previous_strokes, new_strokes, modified_by, modified_at
+│   │   └── handicap_request.py  # request_id, user_id, requested_strokes, message, status, submitted_at, resolved_at, resolved_by
 │   │
 │   ├── poetry.lock
 │   ├── pyproject.toml
@@ -75,33 +82,37 @@ render-minigolfmasters/
 │   │   │   └── AuthContext.jsx  # Current user, login/logout state
 │   │   │
 │   │   ├── components/
-│   │   │   ├── Layout.jsx       # Mobile shell, bottom tab nav
+│   │   │   ├── Layout.jsx       # Mobile shell, bottom tab nav, offline sync banner
 │   │   │   ├── ProtectedRoute.jsx
-│   │   │   ├── ScoreStepper.jsx # Large +/- tap input for hole scores (most important UI component)
-│   │   │   ├── Banner.jsx       # Reusable image banner (used on Leaderboards page)
-│   │   │   └── Dialog.jsx       # Reusable modal/dialog (used in invite, forfeit, and confirm flows)
+│   │   │   ├── ScoreStepper.jsx # Large +/- tap input for single-hole score entry
+│   │   │   ├── ScoreGrid.jsx    # Compact grid mode — all holes at once with inline steppers
+│   │   │   ├── Banner.jsx       # Reusable image banner
+│   │   │   └── Dialog.jsx       # Reusable modal/dialog
+│   │   │
+│   │   ├── utils/
+│   │   │   └── offlineQueue.js  # localStorage offline score queue (queueScores, syncQueue, etc.)
 │   │   │
 │   │   ├── pages/
-│   │   │   ├── Home.jsx         # Public marketing page — story, about, latest tournament highlight
-│   │   │   ├── Contact.jsx      # Public contact form + founder/organizer info
+│   │   │   ├── Home.jsx
+│   │   │   ├── Contact.jsx
 │   │   │   ├── Login.jsx
 │   │   │   ├── AcceptInvite.jsx
-│   │   │   ├── ResetPassword.jsx  # Password reset via token (public)
-│   │   │   ├── Tournaments.jsx  # All tournaments (public)
-│   │   │   ├── Leaderboards.jsx # Public list of all active/complete tournaments with search & filter
-│   │   │   ├── Leaderboard.jsx  # Single tournament leaderboard (public)
-│   │   │   ├── RoundScores.jsx  # Per-round scores view (public)
-│   │   │   ├── History.jsx      # All scores, all years, all players (public)
-│   │   │   ├── Registrations.jsx # "My Registrations" — player's registrations with status filter
-│   │   │   ├── RoundSelect.jsx  # Intermediate page: player selects which round to score
-│   │   │   ├── Scorecard.jsx    # Score entry — reached after round selection
-│   │   │   ├── Profile.jsx      # Authenticated user profile — view/update phone, change password, view handicap
+│   │   │   ├── ResetPassword.jsx
+│   │   │   ├── Tournaments.jsx
+│   │   │   ├── Leaderboards.jsx
+│   │   │   ├── Leaderboard.jsx      # Round-by-round tabs, player drill-down, recap link
+│   │   │   ├── RoundScores.jsx      # Hole-by-hole table with avg difficulty row
+│   │   │   ├── TournamentRecap.jsx  # Champion card, stat cards, copy link
+│   │   │   ├── History.jsx          # Completed tournaments with recap links
+│   │   │   ├── Registrations.jsx
+│   │   │   ├── Scorecard.jsx        # Stepper + grid modes, par badges, confirm, offline, conflict dialog
+│   │   │   ├── Profile.jsx          # Phone, password, handicap request, champion badges
 │   │   │   └── admin/
-│   │   │       ├── Dashboard.jsx
-│   │   │       ├── ManageTournament.jsx    # Create tournament, manage rounds, review/accept/reject/forfeit registrations
-│   │   │       ├── ManageCourses.jsx       # Create courses & holes, update pars
-│   │   │       ├── ManageUsers.jsx         # Invite/deactivate users, update roles, set handicaps
-│   │   │       └── AdminRoundScores.jsx    # Admin view/override of player scores per round
+│   │   │       ├── Dashboard.jsx            # Stat cards + tournament list
+│   │   │       ├── ManageTournament.jsx     # Full tournament admin (rounds, lock, regs, bulk, scores, audit, announce)
+│   │   │       ├── ManageCourses.jsx        # Create courses/holes/pars, bulk par dialog, difficulty badges
+│   │   │       ├── ManageUsers.jsx          # Invite/deactivate users, roles, handicap request review
+│   │   │       └── AdminRoundScores.jsx     # Admin view/override of player scores per round
 │   │
 │   ├── package.json
 │   └── vite.config.js
@@ -160,7 +171,7 @@ services:
 
 ## Database: Google Sheets
 
-Google Sheets is the database. There is one Google Spreadsheet with one tab per table. The `sheets.py` file is the **only** place in the codebase that knows about Google Sheets — all routers call `sheets.py` functions, never the Sheets API directly. This means the database could be swapped later by only touching `sheets.py`.
+Google Sheets is the database. There is one Google Spreadsheet with one tab per table. The `sheets.py` file is the **only** place in the codebase that knows about Google Sheets — all routers call `sheets.py` functions, never the Sheets API directly.
 
 ### Sheet Tabs (Tables)
 
@@ -171,21 +182,26 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 | `holes` | hole_id, course_id, hole_number |
 | `pars` | par_id, hole_id, par_strokes, active_from, active_to |
 | `handicaps` | handicap_id, user_id, strokes, active_from, active_to |
-| `tournaments` | tournament_id, name, start_date, end_date, status, tournament_admin_id |
-| `rounds` | round_id, tournament_id, course_id, round_number, label |
-| `scores` | score_id, user_id, registration_id, round_id, hole_id, strokes, submitted_at, last_modified_by |
+| `tournaments` | tournament_id, name, start_date, end_date, status, tournament_admin_id, entry_fee, max_players, registration_deadline |
+| `rounds` | round_id, tournament_id, course_id, round_number, label, locked |
+| `scores` | score_id, user_id, registration_id, round_id, hole_id, strokes, submitted_at, last_modified_by, version |
 | `registrations` | registration_id, tournament_id, user_id, status, submitted_at |
+| `score_audit_log` | audit_id, score_id, previous_strokes, new_strokes, modified_by, modified_at |
+| `handicap_requests` | request_id, user_id, requested_strokes, message, status, submitted_at, resolved_at, resolved_by |
 
 ### Key Design Notes
 
 - **Pars are slowly-changing dimensions (SCD).** `active_from` is the date the par was set; `active_to` defaults to `9999-12-31`. When a par is updated: set the previous record's `active_to` to today, insert a new record with `active_from` = today. To resolve the correct par for a tournament, filter where `active_from <= tournament.start_date AND active_to >= tournament.start_date`.
-- **Handicaps follow the same SCD pattern.** Resolve using `tournament.start_date` the same way.
-- **`last_modified_by`** on scores stores the `user_id` of whoever last wrote the score, enabling transparent tracking of admin overrides.
-- **`tournament_admin_id`** is the `user_id` of the admin who created the tournament. They are the only user (besides a global admin) who can edit that tournament's details, manage its rounds, review registrations, and override player scores. Global admins retain read access to all tournaments.
-- **Rounds** represent one play-through of a course within a tournament. Course A × 2 = two round records. Labels should be human-readable, e.g. "Course A – Round 1".
-- **Registration statuses:** `in_review` → `accepted` or `rejected`. Accepted registrations can later become `forfeit`. Forfeiting requires a confirmation dialog before proceeding.
-- **Forfeit players** remain on the leaderboard but are visually marked as forfeit and sorted to the bottom regardless of score.
-- **User status:** `active` | `inactive`. Inactive users cannot log in. Admins deactivate users rather than deleting them.
+- **Handicaps follow the same SCD pattern.**
+- **`last_modified_by`** on scores stores the `user_id` of whoever last wrote the score. Used to detect admin overrides.
+- **`version`** on scores is an integer starting at 1, incremented on every write. Used for optimistic concurrency conflict detection. If a client submits `expected_version` and it doesn't match, the backend returns a 409 with the current score data.
+- **`score_audit_log`** records every admin override with previous value, new value, modified_by, and modified_at. Immutable — never updated, only appended.
+- **`handicap_requests`** tracks player requests for handicap review. Status: `pending` → `approved` or `rejected`. Approval runs the same SCD logic as `POST /handicaps/`.
+- **`locked`** on rounds is a string `"true"` or `""`. When locked, players cannot submit or edit scores for that round (admins can still override).
+- **`max_players`** and **`registration_deadline`** on tournaments are optional strings. If `max_players` is set and the accepted count reaches it, new registrations become `waitlisted`. If `registration_deadline` is set and has passed, new registrations are blocked with a 400.
+- **Registration statuses:** `in_review` → `accepted`, `rejected`, or `waitlisted`. Accepted can become `forfeit`. Waitlisted auto-promotes to `in_review` when an accepted registration is rejected or forfeited.
+- **Forfeit players** remain on the leaderboard visually marked and sorted to the bottom.
+- **User status:** `active` | `inactive`. Inactive users cannot log in.
 
 ---
 
@@ -193,8 +209,8 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 
 - **Invite-only accounts.** Only global admins can send invites.
 - Invite flow: Admin enters name + email + role in ManageUsers → app generates a unique invite token → emails a signup link → user clicks link → sets password → account activated.
-- **Password reset flow:** Admin triggers a reset link for a user → user clicks link → sets new password via `POST /auth/reset-password-by-token`. No account creation involved.
-- Passwords stored as **bcrypt hashes**, never plaintext.
+- **Password reset flow:** Admin triggers a reset link for a user → user clicks link → sets new password via `POST /auth/reset-password-by-token`.
+- Passwords stored as **bcrypt hashes**.
 - Sessions use **JWTs** stored client-side (localStorage), sent as Bearer tokens on every API request.
 - Role is embedded in the JWT payload: `player` or `admin`.
 - `dependencies.py` provides:
@@ -205,152 +221,97 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 
 ---
 
+## Email
+
+All email is sent through `backend/email_utils.py`:
+
+```python
+def send_email(to_email: str, subject: str, body: str, reply_to: str | None = None) -> bool
+```
+
+Returns `True` on success, `False` on failure (non-blocking). Email flows:
+- **Invites** — `users.py` → invite link
+- **Password reset** — `auth.py` → reset link
+- **Contact form** — `contact.py` → forwarded to `ADMIN_EMAIL` with user's email as `reply_to`
+- **Registration status** — `registrations.py` → accepted/rejected notification to player
+- **Waitlist promotion** — `registrations.py` → notifies waitlisted player when promoted
+- **Handicap approval** — `handicap_requests.py` → notifies player when handicap is updated
+- **Handicap request** — `handicap_requests.py` → notifies admin when player submits request
+- **Tournament announcements** — `tournaments.py` → bulk email to all accepted registrants
+
+---
+
 ## Access Control
 
 | Action | Public | Player | Tournament Admin | Global Admin |
 |---|---|---|---|---|
 | View home / marketing page | ✅ | ✅ | ✅ | ✅ |
-| View all tournaments | ✅ | ✅ | ✅ | ✅ |
-| View leaderboard | ✅ | ✅ | ✅ | ✅ |
-| View score history (all years) | ✅ | ✅ | ✅ | ✅ |
+| View all tournaments / leaderboards / history | ✅ | ✅ | ✅ | ✅ |
+| View tournament recap page | ✅ | ✅ | ✅ | ✅ |
 | Submit contact form | ✅ | ✅ | ✅ | ✅ |
 | Register for a tournament | ❌ | ✅ | ✅ | ✅ |
-| View "My Registrations" | ❌ | ✅ | ✅ | ✅ |
-| Submit own scores (active tournament only) | ❌ | ✅ | ✅ | ✅ |
-| Edit own scores (active tournament only) | ❌ | ✅ | ✅ | ✅ |
+| Submit / edit own scores (active, unlocked round) | ❌ | ✅ | ✅ | ✅ |
 | Forfeit own registration | ❌ | ✅ | ✅ | ✅ |
-| Update own profile (phone, password) | ❌ | ✅ | ✅ | ✅ |
+| Update own profile, change password | ❌ | ✅ | ✅ | ✅ |
+| Request handicap review | ❌ | ✅ | ✅ | ✅ |
 | Override any player's scores | ❌ | ❌ | ✅ (own tournament) | ✅ |
-| Edit tournament details & rounds | ❌ | ❌ | ✅ (own tournament) | ✅ |
+| Lock / unlock rounds | ❌ | ❌ | ✅ (own tournament) | ✅ |
+| Announce to registrants | ❌ | ❌ | ✅ (own tournament) | ✅ |
 | Accept / reject / forfeit registrations | ❌ | ❌ | ✅ (own tournament) | ✅ |
+| Bulk accept / reject registrations | ❌ | ❌ | ✅ (own tournament) | ✅ |
+| Edit tournament details, manage rounds | ❌ | ❌ | ✅ (own tournament) | ✅ |
 | Invite users / set roles | ❌ | ❌ | ❌ | ✅ |
 | Create tournaments | ❌ | ❌ | ❌ | ✅ |
 | Manage courses, holes, pars | ❌ | ❌ | ❌ | ✅ |
-| Set player handicaps | ❌ | ❌ | ❌ | ✅ |
+| Set player handicaps / approve requests | ❌ | ❌ | ❌ | ✅ |
 | Deactivate / reactivate users | ❌ | ❌ | ❌ | ✅ |
+| View admin stats, score audit logs | ❌ | ❌ | ❌ | ✅ |
 
 ### Score Submission Rules
 
-- Scores can only be submitted or edited by players when tournament status is `active`.
-- Once a tournament is `complete`, player score submission and editing is locked.
-- Only the tournament admin or global admin can modify scores on a completed tournament.
+- Scores can only be submitted or edited by players when tournament status is `active` AND the round is not `locked`.
+- Once a tournament is `complete`, player score submission and editing is locked entirely.
+- Only the tournament admin or global admin can modify scores on a completed tournament or a locked round.
+- If `expected_version` is provided and doesn't match the current score version, the backend returns a 409 Conflict with the current score data. The frontend presents a "keep mine / use theirs" dialog.
 
 ---
 
-## Tournaments Page (`/tournaments`)
+## Scorecard (Player Score Entry)
 
-- Public. Lists all tournaments (upcoming, active, complete).
-- No registration management here — that moved to the dedicated Registrations page.
+Players are on their phones on a golf course, in sunlight, potentially with poor signal. Design priorities:
 
-## Leaderboards Page (`/leaderboards`)
-
-- Public. Searchable, filterable list of all active and complete tournaments.
-- Each card links to the tournament's full leaderboard at `/leaderboard/:tournamentId`.
-- Features a Banner image at the top.
-
-## Leaderboard Page (`/leaderboard/:tournamentId`)
-
-- Public. Full standings for one tournament: gross and net scores, color-coded by par.
-- Links to per-round score views at `/leaderboard/:tournamentId/round/:roundId`.
-- Forfeit players marked visually and sorted to the bottom.
-
-## Round Scores Page (`/leaderboard/:tournamentId/round/:roundId`)
-
-- Public. Shows all player scores for a specific round, hole by hole.
-
-## Registrations Page (`/registrations`)
-
-- Player-only. Lists all of the logged-in user's registrations across all tournaments.
-- Filterable by status (`in_review`, `accepted`, `rejected`, `forfeit`).
-- Accepted registrations for an `active` tournament show an "Add Scores" button → `/scorecard/:registrationId`.
-
-## Profile Page (`/profile`)
-
-- Player-only. Displays the user's name, email, current handicap, and phone number.
-- Users can update their phone number and change their password from this page.
+- **Full round loads in one API call** — no per-hole network requests
+- **Two input modes:**
+  - **Stepper mode** (default) — one hole at a time, large `ScoreStepper` component with full-screen +/− buttons
+  - **Grid mode** — compact scrollable list of all holes at once (`ScoreGrid` component)
+- **Par-relative badge** — Eagle / Birdie / Par / Bogey / Double Bogey shown in real time
+- **Confirmation step** — "Review & Complete Round" shows full summary table before final navigation
+- **Optimistic UI** — score display updates immediately; sync happens in the background
+- **Offline-first** — on network failure, scores are queued in `localStorage` via `offlineQueue.js` and the player advances optimistically. Sync runs on mount and whenever the player goes back online. A banner in `Layout.jsx` signals pending sync.
+- **Round lock** — if round is locked, a banner is shown and save is disabled
+- **Conflict resolution** — on 409, shows a dialog: "Keep mine" (force-save without version check) or "Use theirs" (update local display to server value)
 
 ---
 
-## Contact Page (`/contact`)
+## Leaderboard
 
-- Public-facing. Fields: name, email, subject, message. Also displays founder/organizer information.
-- On submit, FastAPI sends an email to `ADMIN_EMAIL` via `smtplib` + Gmail App Password.
-- Nothing is stored in Google Sheets — email notification only.
-- Use cases: request to host a tournament, request to become a user, general inquiry.
-
----
-
-## Home Page (`/`)
-
-- Public marketing page.
-- Content: app story/origin, what the tournaments are, how it works, how to join, highlights from the most recent or current tournament (e.g. current leader or most recent champion).
-- Clear CTAs: "View Leaderboard", "View History", "Login".
-- Tone matches the brand — fun, characterful, Masters-inspired.
+- **Overall standings** + **round-by-round tabs** (cumulative through selected round number)
+- **Player drill-down** — tap any player name to expand a per-round hole-by-hole breakdown with par-relative badges. Holes are fetched from `GET /courses/{course_id}/holes` and cached per course_id.
+- **Handicap toggle** — switch between net and gross scores
+- **"View Recap →"** link appears for completed tournaments
+- Forfeit players marked and sorted to bottom
 
 ---
 
-## Tournament & Scoring Domain
+## Tournament Recap Page (`/tournaments/:tournamentId/recap`)
 
-### How a Tournament Works
+Public. Fetches `GET /tournaments/{tournament_id}/recap` which computes in-memory:
+- **Champion** — player with the lowest net score
+- **Tightest finish** — stroke gap between 1st and 2nd
+- **Hardest hole** — hole with the highest avg_vs_par
+- **Best single round** — lowest gross score for any player in any round
 
-1. Global admin creates a tournament (becomes its tournament admin).
-2. Tournament admin sets up rounds — each round links a course with a round number and label.
-3. Global admin sets pars per hole (SCD, resolved by tournament start_date).
-4. Global admin sets player handicaps (SCD, resolved by tournament start_date).
-5. Logged-in users browse tournaments and submit a registration (status: `in_review`).
-6. Tournament admin reviews and accepts or rejects registrations.
-7. When tournament goes `active`, accepted players can submit scores.
-8. Players go to "My Registrations" → tap "Add Scores" → select round → enter scores hole by hole.
-9. Leaderboard is live throughout.
-10. When tournament is `complete`, scores lock for players. Leaderboard is the final result — no separate publish step.
-11. Forfeit: tournament admin or player can forfeit a registration at any time (with confirm dialog).
-
-### Score Entry UX (Critical)
-
-- Players are on their phones on a golf course, in sunlight, potentially with poor signal.
-- Score entry must be **fast, large-tapped, and forgiving**.
-- `ScoreStepper` is a large +/− stepper per hole — no keyboard input for score entry.
-- The full scorecard for a round loads in **one API call** — no per-hole requests.
-- **Optimistic UI:** display updates immediately, sync to backend in background. Surface a clear non-intrusive error and retry on failure.
-
-### Scoring Display
-
-- **Gross score:** raw strokes
-- **Net score:** gross strokes minus handicap (used for leaderboard ranking)
-- Color coding relative to par:
-  - Under par → Emerald `#079E78`
-  - At par → Silver `#E0E1E5`
-  - Over par → Red `#CC0131`
-- Forfeit players shown on leaderboard, visually marked, sorted to the bottom regardless of score.
-
----
-
-## Branding
-
-**App Name:** Mini Golf Masters
-
-**Assets:** All brand assets live in `frontend/public/images/`. Reference with `/images/filename`.
-
-**Favicon:** Set in `index.html` as `<link rel="icon" href="/images/favicon.png" />`. Use the circular windmill logo.
-
-**Fonts** (Google Fonts):
-- Headers/Display: `League Spartan`
-- Body: `Montserrat`
-
-**Color Palette:**
-
-| Name | Hex | Usage |
-|---|---|---|
-| Forest Green | `#135D40` | Primary — nav, headers, primary buttons |
-| Emerald | `#079E78` | Secondary — accents, active states, under-par |
-| Silver | `#E0E1E5` | Borders, dividers, at-par |
-| Cream | `#F3F4EE` | Page/app background |
-| Yellow | `#FBF50D` | Highlights, badges, score callouts |
-| Red | `#CC0131` | Errors, over-par, destructive actions |
-
-**Vibe:** Masters-inspired. Clean, sporty, data-forward but fun. Augusta National meets a backyard tournament with friends — characterful and a little playful, not corporate.
-
-**Mobile-first:** All UI designed for phone screens first. Bottom tab navigation. Large tap targets. No hover-dependent interactions for core functionality.
+"Copy Link" button shares the URL. Linked from Leaderboard (completed tournaments) and History.
 
 ---
 
@@ -367,6 +328,7 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 | `/leaderboards` | Public | Leaderboards |
 | `/leaderboard/:tournamentId` | Public | Leaderboard |
 | `/leaderboard/:tournamentId/round/:roundId` | Public | RoundScores |
+| `/tournaments/:tournamentId/recap` | Public | TournamentRecap |
 | `/history` | Public | History |
 | `/registrations` | Player | Registrations |
 | `/profile` | Player | Profile |
@@ -380,9 +342,37 @@ Google Sheets is the database. There is one Google Spreadsheet with one tab per 
 
 ---
 
-## Page Titles
+## Admin Pages
 
-Set via `document.title` in each page component. Format: `{Page} | Mini Golf Masters`.
+### Dashboard (`/admin`)
+- Stat cards: pending registrations, active tournaments, last score submitted (time ago), pending handicap requests. Data from `GET /tournaments/admin/stats`.
+- Quick nav to ManageUsers and ManageCourses.
+- Tournament list with search + status filter.
+
+### ManageTournament (`/admin/tournaments/:tournamentId`)
+- **Tournament details form:** name, dates, entry fee, max players, registration deadline. Saves via `PATCH /tournaments/{id}`.
+- **Rounds tab:** add/remove rounds. **Lock/Unlock** toggle per round (`PATCH /rounds/{id}/lock`). Locked rounds show a "Locked" badge.
+- **Registrations tab:** search + filter (All / Pending / Accepted / Waitlisted / Forfeit) + sort (newest/oldest). Bulk selection with checkboxes → "Accept Selected" / "Reject Selected" → confirmation dialog → `PATCH /registrations/bulk`. Individual accept/reject/forfeit buttons.
+- **Scores tab:** select player + round → load hole scores with +/− steppers. For any hole with an admin override (`last_modified_by ≠ player`), a ⊙ icon opens the score audit log dialog. Saves via `POST /scores/`.
+- **Announce button** in header: opens dialog with subject + message → `POST /tournaments/{id}/announce` → shows "Sent to N players".
+
+### ManageCourses (`/admin/courses`)
+- Create / edit / delete courses and holes.
+- **Set All Pars** button per course: opens a dialog with par inputs for all holes → `POST /pars/bulk`.
+- When expanding a course, course difficulty stats are fetched (`GET /courses/{id}/stats`) and avg strokes shown as a color-coded badge next to each hole.
+
+### ManageUsers (`/admin/users`)
+- Invite users, change roles, deactivate/reactivate.
+- **Handicap Requests section** below user list: shows pending requests with player name, requested strokes, message, submitted date. Approve/Reject buttons → `PATCH /handicap-requests/{id}`. Resolved requests visible in a collapsible `<details>`.
+
+### Profile (`/profile`)
+- View account info, phone (editable), password (changeable).
+- **Champion badges** — fetched from `GET /users/{user_id}/championships`, shown as yellow pill badges.
+- **Handicap display** with "Request Review" button → dialog (suggested strokes + message) → `POST /handicap-requests/`. If a pending request exists, shows "Review pending" instead.
+
+---
+
+## Page Titles
 
 | Page | Title |
 |---|---|
@@ -391,6 +381,7 @@ Set via `document.title` in each page component. Format: `{Page} | Mini Golf Mas
 | Leaderboards | `Leaderboards \| Mini Golf Masters` |
 | Leaderboard | `Leaderboard \| Mini Golf Masters` |
 | Round Scores | `Round Scores \| Mini Golf Masters` |
+| Tournament Recap | `{Name} Recap \| Mini Golf Masters` |
 | History | `History \| Mini Golf Masters` |
 | Contact | `Contact \| Mini Golf Masters` |
 | Login | `Login \| Mini Golf Masters` |
@@ -405,6 +396,35 @@ Set via `document.title` in each page component. Format: `{Page} | Mini Golf Mas
 | Manage Courses | `Manage Courses \| Mini Golf Masters` |
 | Manage Users | `Manage Users \| Mini Golf Masters` |
 | Admin Round Scores | `Round Scores \| Mini Golf Masters` |
+
+---
+
+## Branding
+
+**App Name:** Mini Golf Masters
+
+**Assets:** All brand assets live in `frontend/public/images/`. Reference with `/images/filename`.
+
+**Favicon:** Set in `index.html` as `<link rel="icon" href="/images/favicon.png" />`.
+
+**Fonts** (Google Fonts):
+- Headers/Display: `League Spartan`
+- Body: `Montserrat`
+
+**Color Palette:**
+
+| Name | Hex | Tailwind | Usage |
+|---|---|---|---|
+| Forest Green | `#135D40` | `forest` | Primary — nav, headers, primary buttons |
+| Emerald | `#079E78` | `emerald` | Secondary — accents, active states, under-par |
+| Silver | `#E0E1E5` | `silver` | Borders, dividers, at-par |
+| Cream | `#F3F4EE` | `cream` | Page/app background |
+| Yellow | `#FBF50D` | `yellow` | Highlights, badges, score callouts, champion |
+| Red | `#CC0131` | — | Errors, over-par, destructive actions |
+
+**Vibe:** Masters-inspired. Clean, sporty, data-forward but fun. Augusta National meets a backyard tournament with friends — characterful and a little playful, not corporate.
+
+**Mobile-first:** All UI designed for phone screens first. Bottom tab navigation. Large tap targets. No hover-dependent interactions for core functionality.
 
 ---
 
@@ -438,28 +458,10 @@ VITE_API_URL=                   # e.g. https://minigolfmasters-api.onrender.com
 
 ---
 
-## Suggested Build Order
-
-Complete and test each phase before moving to the next.
-
-1. **Repo & config setup** — monorepo scaffold, `.env.example`, `render.yaml`, Vite + Tailwind config with brand tokens
-2. **Google Sheets setup** — service account, create spreadsheet with all tabs and correct column headers, `sheets.py` with typed helper functions
-3. **Auth** — invite flow, bcrypt, JWT, `dependencies.py`, login / accept-invite endpoints
-4. **Admin: courses & pars** — create courses and holes; set and update pars (SCD insert logic)
-5. **Admin: users & handicaps** — invite users, set roles; set and update handicaps (SCD insert logic)
-6. **Admin: tournament setup** — create tournament, manage rounds
-7. **Registrations** — player registers; tournament admin accepts / rejects / forfeits (with confirm dialog)
-8. **Player: score entry** — Scorecard page, ScoreStepper component, optimistic submission, edit own scores
-9. **Leaderboard** — live standings, net score calc, forfeit handling, score lock on complete
-10. **History** — all scores, all years, all players
-11. **Public pages** — Home (marketing), Contact (form + email)
-12. **Polish & deployment** — Render deploy, favicon, page titles, mobile QA, admin score override
-
----
-
 ## Important Conventions
 
 - `sheets.py` is the **only** file that imports or calls the Google Sheets API. All other files call helper functions from `sheets.py`.
+- `email_utils.py` is the **only** file that sends email. All email flows call `email_utils.send_email()`. It returns `bool` and never raises — email failures are non-blocking.
 - One Pydantic model file per domain entity in `models/`, mirroring the sheet tabs.
 - One router file per domain in `routers/`.
 - JWT role (`player` or `admin`) is read from the token — never re-fetched from the sheet per request.
@@ -468,4 +470,8 @@ Complete and test each phase before moving to the next.
 - SCD lookups: always filter `active_from <= tournament.start_date AND active_to >= tournament.start_date`.
 - Mobile-first CSS: base styles for small screens, use `md:` and `lg:` Tailwind breakpoints to enhance for larger screens.
 - Optimistic UI on score submission — display updates immediately, sync in background, handle failures gracefully.
-- All destructive or irreversible actions (forfeit, delete) require a confirmation dialog before proceeding.
+- All destructive or irreversible actions (forfeit, delete, bulk reject) require a confirmation dialog before proceeding.
+- Score `version` is incremented on every write in `sheets.py`. If `expected_version` is passed by the client and doesn't match, return 409 with current score data. Never silently overwrite.
+- `locked` on a round is stored as the string `"true"` or `""` (empty string). Check with `round.get("locked") == "true"`.
+- Registration `status` values: `in_review`, `accepted`, `rejected`, `waitlisted`, `forfeit`.
+- Handicap request `status` values: `pending`, `approved`, `rejected`.

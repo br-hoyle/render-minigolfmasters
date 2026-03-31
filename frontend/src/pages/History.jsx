@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 
 export default function History() {
@@ -28,16 +29,25 @@ export default function History() {
 
       <div className="space-y-3">
         {tournaments.map((t) => (
-          <a
+          <div
             key={t.tournament_id}
-            href={`/leaderboard/${t.tournament_id}`}
-            className="block bg-white rounded-xl shadow-sm p-4 hover:shadow-md transition-shadow"
+            className="bg-white rounded-xl shadow-sm p-4 hover:shadow-md transition-shadow"
           >
-            <div className="font-display font-bold text-forest">{t.name}</div>
-            <div className="text-xs text-gray-400 mt-0.5">
-              {t.start_date} — {t.end_date}
+            <div className="flex items-start justify-between gap-3">
+              <Link to={`/leaderboard/${t.tournament_id}`} className="flex-1 min-w-0">
+                <p className="font-display font-bold text-forest">{t.name}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {t.start_date} — {t.end_date}
+                </p>
+              </Link>
+              <Link
+                to={`/tournaments/${t.tournament_id}/recap`}
+                className="text-xs font-bold text-[#135D40] border border-[#135D40] px-3 py-1 rounded-full hover:bg-forest hover:text-white transition-colors shrink-0"
+              >
+                Recap →
+              </Link>
             </div>
-          </a>
+          </div>
         ))}
       </div>
     </div>

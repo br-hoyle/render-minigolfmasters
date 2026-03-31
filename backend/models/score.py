@@ -11,5 +11,6 @@ class Score(BaseModel):
     submitted_at: str
     last_modified_by: str
     last_modified_at: str
+    version: int = 1
 
     model_config = {"extra": "ignore"}
