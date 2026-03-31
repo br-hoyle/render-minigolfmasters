@@ -21,7 +21,8 @@ def send_email(to_email: str, subject: str, body: str, reply_to: str | None = No
         if reply_to:
             msg["Reply-To"] = reply_to
 
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as smtp:
+            smtp.starttls()
             smtp.login(ADMIN_EMAIL, GMAIL_APP_PASSWORD)
             smtp.send_message(msg)
         return True
