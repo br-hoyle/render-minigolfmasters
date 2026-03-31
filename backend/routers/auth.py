@@ -1,12 +1,10 @@
-import smtplib
-from email.mime.text import MIMEText
-
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 import auth as auth_utils
+import email_utils
 import sheets
-from config import ADMIN_EMAIL, FRONTEND_URL, GMAIL_APP_PASSWORD
+from config import ADMIN_EMAIL, FRONTEND_URL
 
 router = APIRouter()
 
@@ -92,7 +90,11 @@ def forgot_password(body: ForgotPasswordRequest):
     token = auth_utils.generate_invite_token()
     sheets.update_user(user["user_id"], {"invite_token": token})
     reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
-    _send_reset_email(body.email, user.get("first_name", ""), reset_url)
+    email_utils.send_email(
+        body.email,
+        "Reset your Mini Golf Masters password",
+        f"Hi {user.get('first_name', '')},\n\nYou requested a password reset for Mini Golf Masters.\n\nClick the link below to set a new password:\n{reset_url}\n\nIf you didn't request this, you can safely ignore this email.",
+    )
     return {"detail": "If that email is registered, a reset link has been sent."}
 
 
@@ -106,14 +108,3 @@ def reset_password_by_token(body: ResetByTokenRequest):
     return {"detail": "Password updated"}
 
 
-def _send_reset_email(to_email: str, first_name: str, reset_url: str) -> None:
-    msg = MIMEText(
-        f"Hi {first_name},\n\nYou requested a password reset for Mini Golf Masters.\n\nClick the link below to set a new password:\n{reset_url}\n\nIf you didn't request this, you can safely ignore this email."
-    )
-    msg["Subject"] = "Reset your Mini Golf Masters password"
-    msg["From"] = ADMIN_EMAIL
-    msg["To"] = to_email
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(ADMIN_EMAIL, GMAIL_APP_PASSWORD)
-        smtp.send_message(msg)

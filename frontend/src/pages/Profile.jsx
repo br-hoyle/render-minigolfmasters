@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import Dialog from '../components/Dialog'
 
 function formatPhone(value) {
   const digits = value.replace(/\D/g, '').slice(0, 10)
@@ -19,7 +20,16 @@ export default function Profile() {
   const { user: authUser } = useAuth()
   const [profile, setProfile] = useState(null)
   const [handicap, setHandicap] = useState(null)
+  const [championships, setChampionships] = useState([])
   const [loading, setLoading] = useState(true)
+
+  // Handicap request state
+  const [pendingRequest, setPendingRequest] = useState(null)
+  const [hcRequestOpen, setHcRequestOpen] = useState(false)
+  const [hcForm, setHcForm] = useState({ requested_strokes: '', message: '' })
+  const [hcSubmitting, setHcSubmitting] = useState(false)
+  const [hcSuccess, setHcSuccess] = useState(false)
+  const [hcError, setHcError] = useState(null)
 
   // Phone form
   const [phone, setPhone] = useState('')
@@ -37,26 +47,55 @@ export default function Profile() {
 
   useEffect(() => {
     async function load() {
-      const [me, handicaps] = await Promise.all([
+      const [me, handicaps, hcRequests] = await Promise.all([
         api.get('/users/me'),
         api.get('/handicaps/'),
+        api.get('/handicap-requests/me').catch(() => []),
       ])
       setProfile(me)
       setPhone(me.phone || '')
 
       if (authUser) {
-        // Find the most recent active handicap for this user
         const userHandicaps = handicaps.filter(
           (h) => h.user_id === me.user_id && h.active_to >= new Date().toISOString().split('T')[0]
         )
         userHandicaps.sort((a, b) => b.active_from.localeCompare(a.active_from))
         setHandicap(userHandicaps[0] || null)
+
+        const pending = hcRequests.find((r) => r.status === 'pending')
+        setPendingRequest(pending || null)
+
+        // Fetch championships
+        api.get(`/users/${me.user_id}/championships`).then(setChampionships).catch(() => {})
       }
 
       setLoading(false)
     }
     load()
   }, [])
+
+  async function handleRequestHandicap(e) {
+    e.preventDefault()
+    setHcSubmitting(true)
+    setHcError(null)
+    try {
+      const req = await api.post('/handicap-requests/', {
+        requested_strokes: parseInt(hcForm.requested_strokes),
+        message: hcForm.message,
+      })
+      setPendingRequest(req)
+      setHcSuccess(true)
+      setHcForm({ requested_strokes: '', message: '' })
+      setTimeout(() => {
+        setHcRequestOpen(false)
+        setHcSuccess(false)
+      }, 1500)
+    } catch (err) {
+      setHcError(err.message || 'Failed to submit request')
+    } finally {
+      setHcSubmitting(false)
+    }
+  }
 
   async function handleSavePhone(e) {
     e.preventDefault()
@@ -121,6 +160,23 @@ export default function Profile() {
         <p className="text-sm text-gray-500 mt-1">Your account details.</p>
       </div>
 
+      {/* Champion badges */}
+      {championships.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Championships</p>
+          <div className="flex flex-wrap gap-2">
+            {championships.map((c) => (
+              <span
+                key={c.tournament_id}
+                className="bg-[#FBF50D] text-gray-900 text-xs font-bold px-3 py-1.5 rounded-full"
+              >
+                {c.tournament_name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Account info card */}
       <div className="bg-white rounded-xl border border-silver p-5 space-y-4">
         <h2 className="font-display font-bold text-lg text-gray-900">Account Info</h2>
@@ -146,11 +202,26 @@ export default function Profile() {
           <p className="text-sm capitalize text-gray-700">{profile.role}</p>
         </div>
 
+        {/* Handicap + Request Review */}
         <div>
           <p className="text-xs font-semibold text-gray-500 mb-1">Handicap</p>
-          <p className="text-sm text-gray-700">
-            {handicap ? `${handicap.strokes} stroke${Number(handicap.strokes) !== 1 ? 's' : ''}` : 'None'}
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-gray-700">
+              {handicap ? `${handicap.strokes} stroke${Number(handicap.strokes) !== 1 ? 's' : ''}` : 'None'}
+            </p>
+            {pendingRequest ? (
+              <span className="text-xs text-yellow-600 font-semibold bg-yellow-50 px-2 py-0.5 rounded-full">
+                Review pending
+              </span>
+            ) : (
+              <button
+                onClick={() => setHcRequestOpen(true)}
+                className="text-xs font-bold text-forest hover:underline"
+              >
+                Request Review
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -229,6 +300,53 @@ export default function Profile() {
           {savingPassword ? 'Saving…' : 'Update Password'}
         </button>
       </form>
+
+      {/* Handicap Request Dialog */}
+      <Dialog
+        open={hcRequestOpen}
+        onClose={() => { setHcRequestOpen(false); setHcError(null); setHcSuccess(false) }}
+        title="Request Handicap Review"
+      >
+        {hcSuccess ? (
+          <div className="text-center space-y-4">
+            <p className="text-[#079E78] font-bold text-lg">Request submitted!</p>
+            <p className="text-sm text-gray-600">An admin will review your request.</p>
+          </div>
+        ) : (
+          <form onSubmit={handleRequestHandicap} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Suggested Strokes</label>
+              <input
+                type="number"
+                min="0"
+                value={hcForm.requested_strokes}
+                onChange={(e) => setHcForm((f) => ({ ...f, requested_strokes: e.target.value }))}
+                required
+                placeholder="e.g. 5"
+                className="w-full border border-silver rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Message (optional)</label>
+              <textarea
+                rows={3}
+                value={hcForm.message}
+                onChange={(e) => setHcForm((f) => ({ ...f, message: e.target.value }))}
+                placeholder="Why are you requesting this handicap?"
+                className="w-full border border-silver rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest resize-none"
+              />
+            </div>
+            {hcError && <p className="text-[#CC0131] text-sm">{hcError}</p>}
+            <button
+              type="submit"
+              disabled={hcSubmitting}
+              className="w-full bg-forest text-white font-semibold py-3 rounded-xl text-sm disabled:opacity-60 hover:bg-emerald transition-colors"
+            >
+              {hcSubmitting ? 'Submitting…' : 'Submit Request'}
+            </button>
+          </form>
+        )}
+      </Dialog>
     </div>
   )
 }

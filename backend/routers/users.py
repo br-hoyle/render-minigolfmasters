@@ -1,13 +1,12 @@
-import smtplib
 import uuid
-from email.mime.text import MIMEText
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 import auth as auth_utils
+import email_utils
 import sheets
-from config import ADMIN_EMAIL, FRONTEND_URL, GMAIL_APP_PASSWORD
+from config import FRONTEND_URL
 from dependencies import get_current_user, require_admin
 from models.user import User
 
@@ -96,13 +95,62 @@ def invite_user(body: InviteRequest, current_user: dict = Depends(require_admin)
     })
 
     invite_url = f"{FRONTEND_URL}/accept-invite?token={token}"
-    email_sent = True
-    try:
-        _send_invite_email(body.email, body.first_name, invite_url)
-    except Exception:
-        email_sent = False
+    email_sent = email_utils.send_email(
+        body.email,
+        "You're invited to Mini Golf Masters",
+        f"Hi {body.first_name},\n\nYou've been invited to Mini Golf Masters!\n\nCreate your account here:\n{invite_url}\n\nSee you on the course!",
+    )
 
     return {"detail": "Invite sent", "user_id": user_id, "email_sent": email_sent, "invite_url": invite_url}
+
+
+@router.get("/{user_id}/championships")
+def get_championships(user_id: str):
+    """Return list of tournaments where this user won (lowest net score among accepted players)."""
+    all_tournaments = [t for t in sheets.get_all_tournaments() if not t.get("deleted_at")]
+    all_registrations = sheets.get_all_registrations()
+    all_scores = sheets.get_all_scores()
+    all_handicaps = sheets.get_all_handicaps()
+
+    championships = []
+    for t in all_tournaments:
+        from datetime import date
+        today = date.today().isoformat()
+        end_date = t.get("end_date", "")
+        if end_date >= today:
+            continue  # Only completed tournaments
+
+        start_date = t.get("start_date", "")
+        regs = [r for r in all_registrations if r["tournament_id"] == t["tournament_id"] and r["status"] == "accepted"]
+        if not regs:
+            continue
+
+        player_nets = []
+        for reg in regs:
+            handicap = next(
+                (h for h in all_handicaps
+                 if h["user_id"] == reg["user_id"]
+                 and str(h.get("active_from", ""))[:10] <= start_date <= str(h.get("active_to", ""))[:10]),
+                None,
+            )
+            player_scores = [s for s in all_scores if s["registration_id"] == reg["registration_id"]]
+            gross = sum(int(s["strokes"]) for s in player_scores)
+            if gross == 0:
+                continue
+            net = gross - int(handicap["strokes"] if handicap else 0)
+            player_nets.append({"user_id": reg["user_id"], "net": net})
+
+        if not player_nets:
+            continue
+        player_nets.sort(key=lambda x: x["net"])
+        if player_nets[0]["user_id"] == user_id:
+            championships.append({
+                "tournament_id": t["tournament_id"],
+                "tournament_name": t["name"],
+                "net_score": player_nets[0]["net"],
+            })
+
+    return championships
 
 
 @router.patch("/{user_id}", response_model=User)
@@ -121,14 +169,3 @@ def update_user(user_id: str, body: UpdateUserRequest, _: dict = Depends(require
     return User(**user)
 
 
-def _send_invite_email(to_email: str, first_name: str, invite_url: str) -> None:
-    msg = MIMEText(
-        f"Hi {first_name},\n\nYou've been invited to Mini Golf Masters!\n\nCreate your account here:\n{invite_url}\n\nSee you on the course!"
-    )
-    msg["Subject"] = "You're invited to Mini Golf Masters"
-    msg["From"] = ADMIN_EMAIL
-    msg["To"] = to_email
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as smtp:
-        smtp.login(ADMIN_EMAIL, GMAIL_APP_PASSWORD)
-        smtp.send_message(msg)

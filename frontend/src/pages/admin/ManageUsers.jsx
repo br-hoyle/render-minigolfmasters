@@ -39,9 +39,17 @@ export default function ManageUsers() {
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('All')
 
+  // Handicap requests state
+  const [handicapRequests, setHandicapRequests] = useState([])
+  const [resolvingReq, setResolvingReq] = useState(null) // request_id being resolved
+
   useEffect(() => {
-    api.get('/users/').then((us) => {
+    Promise.all([
+      api.get('/users/'),
+      api.get('/handicap-requests/').catch(() => []),
+    ]).then(([us, reqs]) => {
       setUsers(us)
+      setHandicapRequests(reqs)
       setLoading(false)
     })
   }, [])
@@ -56,6 +64,8 @@ export default function ManageUsers() {
       return matchesSearch && matchesRole
     })
   }, [users, search, roleFilter])
+
+  const pendingRequests = handicapRequests.filter((r) => r.status === 'pending')
 
   async function handleInvite(e) {
     e.preventDefault()
@@ -100,6 +110,30 @@ export default function ManageUsers() {
     } finally {
       setUpdating(null)
     }
+  }
+
+  async function resolveHandicapRequest(requestId, status) {
+    setResolvingReq(requestId)
+    try {
+      const updated = await api.patch(`/handicap-requests/${requestId}`, { status })
+      setHandicapRequests((reqs) =>
+        reqs.map((r) => (r.request_id === requestId ? updated : r))
+      )
+    } catch (err) {
+      alert(err.message || 'Failed to resolve request')
+    } finally {
+      setResolvingReq(null)
+    }
+  }
+
+  function getUserName(userId) {
+    const u = users.find((u) => u.user_id === userId)
+    return u ? `${u.first_name} ${u.last_name}` : userId
+  }
+
+  function fmtSubmitted(isoStr) {
+    if (!isoStr) return '—'
+    return new Date(isoStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
   function handleDialogClose() {
@@ -215,6 +249,87 @@ export default function ManageUsers() {
             </div>
           )
         })}
+      </section>
+
+      {/* Handicap Requests section */}
+      <section className="space-y-3">
+        <h2 className="font-display font-bold text-2xl text-gray-900">
+          Handicap Requests
+          {pendingRequests.length > 0 && (
+            <span className="ml-2 text-sm font-semibold bg-[#FBF50D] text-gray-800 px-2 py-0.5 rounded-full">
+              {pendingRequests.length} pending
+            </span>
+          )}
+        </h2>
+
+        {pendingRequests.length === 0 ? (
+          <p className="text-gray-500 text-sm">No pending handicap requests.</p>
+        ) : (
+          pendingRequests.map((req) => (
+            <div key={req.request_id} className="bg-white rounded-xl border border-silver p-4 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-gray-900">{getUserName(req.user_id)}</p>
+                  <p className="text-sm text-gray-600 mt-0.5">
+                    Requested: <strong>{req.requested_strokes} strokes</strong>
+                  </p>
+                  {req.message && (
+                    <p className="text-sm text-gray-500 italic mt-1">"{req.message}"</p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1">Submitted {fmtSubmitted(req.submitted_at)}</p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => resolveHandicapRequest(req.request_id, 'approved')}
+                    disabled={resolvingReq === req.request_id}
+                    className="text-xs font-bold bg-forest text-white px-3 py-1.5 rounded-full hover:bg-emerald transition-colors disabled:opacity-60"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => resolveHandicapRequest(req.request_id, 'rejected')}
+                    disabled={resolvingReq === req.request_id}
+                    className="text-xs font-bold border border-silver text-gray-600 px-3 py-1.5 rounded-full hover:bg-gray-50 transition-colors disabled:opacity-60"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+
+        {/* Show recently resolved ones (collapsed by default) */}
+        {handicapRequests.filter((r) => r.status !== 'pending').length > 0 && (
+          <details className="mt-2">
+            <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+              View resolved requests ({handicapRequests.filter((r) => r.status !== 'pending').length})
+            </summary>
+            <div className="space-y-2 mt-2">
+              {handicapRequests
+                .filter((r) => r.status !== 'pending')
+                .map((req) => (
+                  <div key={req.request_id} className="bg-gray-50 rounded-xl border border-silver p-3 opacity-70">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-sm text-gray-700">{getUserName(req.user_id)}</p>
+                        <p className="text-xs text-gray-500">{req.requested_strokes} strokes</p>
+                      </div>
+                      <span
+                        className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          req.status === 'approved'
+                            ? 'bg-[#079E78]/20 text-[#079E78]'
+                            : 'bg-red-100 text-[#CC0131]'
+                        }`}
+                      >
+                        {req.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </details>
+        )}
       </section>
 
       {/* Invite Dialog */}

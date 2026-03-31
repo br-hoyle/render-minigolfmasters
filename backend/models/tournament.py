@@ -11,6 +11,8 @@ class Tournament(BaseModel):
     status: str = ""  # computed from dates — not stored
     tournament_admin_id: str
     entry_fee: str = ""
+    max_players: str = ""
+    registration_deadline: str = ""
     deleted_at: str = ""
 
     model_config = {"extra": "ignore"}
@@ -26,9 +28,9 @@ class Tournament(BaseModel):
             self.status = "active"
         return self
 
-    @field_validator("entry_fee", mode="before")
+    @field_validator("entry_fee", "max_players", "registration_deadline", mode="before")
     @classmethod
-    def coerce_entry_fee_to_str(cls, v):
+    def coerce_to_str(cls, v):
         if v is None or v == "":
             return ""
         return str(v)

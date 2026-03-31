@@ -30,6 +30,15 @@ export default function ManageCourses() {
   const [editParValue, setEditParValue] = useState('')
   const [newHoleNumbers, setNewHoleNumbers] = useState({}) // { course_id: number }
 
+  // Course difficulty stats
+  const [courseStats, setCourseStats] = useState({}) // course_id -> { hole_id -> stat }
+
+  // Bulk par dialog state
+  const [bulkParCourseId, setBulkParCourseId] = useState(null)
+  const [bulkParValues, setBulkParValues] = useState({})  // hole_id -> par value (string)
+  const [bulkParSaving, setBulkParSaving] = useState(false)
+  const [bulkParSuccess, setBulkParSuccess] = useState(false)
+
   useEffect(() => {
     Promise.all([api.get('/courses/'), api.get('/pars/')]).then(([cs, ps]) => {
       setCourses(cs)
@@ -52,9 +61,14 @@ export default function ManageCourses() {
     if (!courseHoles[courseId]) {
       setLoadingHoles((l) => ({ ...l, [courseId]: true }))
       try {
-        const holes = await api.get(`/courses/${courseId}/holes`)
+        const [holes, stats] = await Promise.all([
+          api.get(`/courses/${courseId}/holes`),
+          api.get(`/courses/${courseId}/stats`).catch(() => []),
+        ])
         const sorted = [...holes].sort((a, b) => a.hole_number - b.hole_number)
         setCourseHoles((h) => ({ ...h, [courseId]: sorted }))
+        const statsMap = Object.fromEntries((stats || []).map((s) => [s.hole_id, s]))
+        setCourseStats((prev) => ({ ...prev, [courseId]: statsMap }))
       } finally {
         setLoadingHoles((l) => ({ ...l, [courseId]: false }))
       }
@@ -145,6 +159,49 @@ export default function ManageCourses() {
     setEditParValue('')
   }
 
+  // ── Bulk par dialog ──────────────────────────────────────────────────────
+
+  function openBulkParDialog(courseId) {
+    const holes = courseHoles[courseId] || []
+    const initial = {}
+    holes.forEach((h) => {
+      initial[h.hole_id] = String(currentPar(h.hole_id) ?? '')
+    })
+    setBulkParValues(initial)
+    setBulkParCourseId(courseId)
+    setBulkParSuccess(false)
+  }
+
+  async function handleBulkParSave() {
+    setBulkParSaving(true)
+    setBulkParSuccess(false)
+    try {
+      const pars = Object.entries(bulkParValues)
+        .filter(([, v]) => v !== '' && !isNaN(parseInt(v)))
+        .map(([hole_id, v]) => ({ hole_id, par_strokes: parseInt(v) }))
+      if (pars.length === 0) return
+      const newPars = await api.post('/pars/bulk', { pars })
+      // Merge new pars into allPars
+      setAllPars((ps) => {
+        const newHoleIds = new Set(newPars.map((p) => p.hole_id))
+        const closed = ps.map((p) =>
+          newHoleIds.has(p.hole_id) && p.active_to === '9999-12-31'
+            ? { ...p, active_to: newPars.find((np) => np.hole_id === p.hole_id)?.active_from || p.active_to }
+            : p
+        )
+        return [...closed, ...newPars]
+      })
+      setBulkParSuccess(true)
+      setTimeout(() => {
+        setBulkParCourseId(null)
+      }, 1200)
+    } catch (err) {
+      alert(err.message || 'Failed to save pars')
+    } finally {
+      setBulkParSaving(false)
+    }
+  }
+
   if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
 
   const filteredCourses = courses.filter((c) => {
@@ -152,6 +209,9 @@ export default function ManageCourses() {
     const q = search.toLowerCase()
     return c.name.toLowerCase().includes(q) || (c.address || '').toLowerCase().includes(q)
   })
+
+  const bulkParCourse = courses.find((c) => c.course_id === bulkParCourseId)
+  const bulkParHoles = bulkParCourseId ? (courseHoles[bulkParCourseId] || []) : []
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
@@ -268,6 +328,18 @@ export default function ManageCourses() {
                     <div className="p-4 text-xs text-gray-400">Loading holes…</div>
                   ) : (
                     <>
+                      {/* Set All Pars button */}
+                      {(courseHoles[c.course_id] || []).length > 0 && (
+                        <div className="px-4 pt-3">
+                          <button
+                            onClick={() => openBulkParDialog(c.course_id)}
+                            className="text-xs font-bold text-forest border border-forest px-3 py-1.5 rounded-full hover:bg-forest hover:text-white transition-colors"
+                          >
+                            Set All Pars
+                          </button>
+                        </div>
+                      )}
+
                       {(courseHoles[c.course_id] || []).length === 0 && (
                         <div className="px-4 py-3 text-xs text-gray-400">No holes yet.</div>
                       )}
@@ -324,11 +396,25 @@ export default function ManageCourses() {
                             </div>
                           ) : (
                             <div className="flex items-center justify-between flex-1">
-                              <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-3">
                                 <span className="font-bold w-20">Hole #{hole.hole_number}</span>
                                 <span className="text-xs text-gray-600">
                                   Par: <strong>{currentPar(hole.hole_id) ?? '—'}</strong>
                                 </span>
+                                {courseStats[c.course_id]?.[hole.hole_id] && (() => {
+                                  const stat = courseStats[c.course_id][hole.hole_id]
+                                  if (!stat.avg_strokes) return null
+                                  const vs = stat.avg_vs_par
+                                  const cls =
+                                    vs < 0 ? 'bg-[#079E78]/10 text-[#079E78]' :
+                                    vs === 0 ? 'bg-gray-100 text-gray-500' :
+                                    'bg-[#CC0131]/10 text-[#CC0131]'
+                                  return (
+                                    <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${cls}`}>
+                                      avg {stat.avg_strokes.toFixed(1)}
+                                    </span>
+                                  )
+                                })()}
                               </div>
                               <div className="flex items-center gap-4">
                                 <button
@@ -339,7 +425,17 @@ export default function ManageCourses() {
                                   }}
                                   className="text-xs font-bold text-forest hover:underline"
                                 >
-                                  Edit
+                                  Edit Par
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingHoleId(hole.hole_id)
+                                    setEditHoleNumber(hole.hole_number)
+                                    setEditingParHoleId(null)
+                                  }}
+                                  className="text-xs font-bold text-gray-500 hover:underline"
+                                >
+                                  Rename
                                 </button>
                                 <button
                                   onClick={() => handleDeleteHole(hole.hole_id, c.course_id)}
@@ -410,6 +506,60 @@ export default function ManageCourses() {
             {saving ? 'Adding…' : 'Add Course'}
           </button>
         </form>
+      </Dialog>
+
+      {/* Bulk Par Dialog */}
+      <Dialog
+        open={!!bulkParCourseId}
+        onClose={() => setBulkParCourseId(null)}
+        title={`Set All Pars — ${bulkParCourse?.name || ''}`}
+      >
+        <div className="space-y-4">
+          {bulkParHoles.length === 0 ? (
+            <p className="text-sm text-gray-500">No holes found for this course.</p>
+          ) : (
+            <div className="space-y-2">
+              {bulkParHoles.map((hole) => (
+                <div key={hole.hole_id} className="flex items-center gap-3">
+                  <span className="font-semibold text-sm text-gray-700 w-20 shrink-0">
+                    Hole #{hole.hole_number}
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={bulkParValues[hole.hole_id] ?? ''}
+                    onChange={(e) =>
+                      setBulkParValues((v) => ({ ...v, [hole.hole_id]: e.target.value }))
+                    }
+                    placeholder="Par"
+                    className="w-20 border border-silver rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {bulkParSuccess && (
+            <p className="text-[#079E78] text-sm font-semibold">Pars saved!</p>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleBulkParSave}
+              disabled={bulkParSaving || bulkParHoles.length === 0}
+              className="flex-1 bg-forest text-white font-semibold py-3 rounded-xl text-sm hover:bg-emerald transition-colors disabled:opacity-60"
+            >
+              {bulkParSaving ? 'Saving…' : 'Save All'}
+            </button>
+            <button
+              onClick={() => setBulkParCourseId(null)}
+              className="flex-1 border border-silver text-gray-700 font-semibold py-3 rounded-xl text-sm hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       </Dialog>
     </div>
   )

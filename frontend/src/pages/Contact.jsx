@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { api } from '../api/client'
 import Banner from '../components/Banner'
 
@@ -8,7 +8,11 @@ export default function Contact() {
     document.title = 'Contact | Mini Golf Masters'
   }, [])
 
-  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: '', message: '' })
+  const { search } = useLocation()
+  const params = new URLSearchParams(search)
+  const initialSubject = params.get('subject') || ''
+
+  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: initialSubject, message: '' })
   const [status, setStatus] = useState(null) // null | 'sending' | 'sent' | 'error'
 
   function handleChange(e) {

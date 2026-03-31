@@ -1,11 +1,22 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getQueuedScores } from '../utils/offlineQueue'
 
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [pendingSync, setPendingSync] = useState(false)
+
+  useEffect(() => {
+    function checkQueue() {
+      setPendingSync(getQueuedScores().length > 0)
+    }
+    checkQueue()
+    window.addEventListener('mgm-offline-queue-changed', checkQueue)
+    return () => window.removeEventListener('mgm-offline-queue-changed', checkQueue)
+  }, [])
 
   function handleLogout() {
     logout()
@@ -86,6 +97,13 @@ export default function Layout() {
           </div>
         </div>
       </header>
+
+      {/* Offline sync banner */}
+      {pendingSync && (
+        <div className="bg-yellow text-gray-900 text-xs font-semibold text-center py-1.5 px-4">
+          Scores pending sync — connect to the internet to submit
+        </div>
+      )}
 
       {/* Page content */}
       <main className="bg-cream min-h-screen flex-1">

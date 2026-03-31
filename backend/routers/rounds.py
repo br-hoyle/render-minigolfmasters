@@ -81,3 +81,22 @@ def delete_round(round_id: str, current_user: dict = Depends(get_current_user)):
     require_tournament_admin(r["tournament_id"], current_user)
 
     sheets.delete_round(round_id)
+
+
+class LockRoundRequest(BaseModel):
+    locked: bool
+
+
+@router.patch("/{round_id}/lock", response_model=Round)
+def lock_round(round_id: str, body: LockRoundRequest, current_user: dict = Depends(get_current_user)):
+    r = sheets.get_round_by_id(round_id)
+    if not r:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Round not found")
+
+    from dependencies import require_tournament_admin
+    require_tournament_admin(r["tournament_id"], current_user)
+
+    locked_value = "true" if body.locked else ""
+    sheets.update_round(round_id, {"locked": locked_value})
+    r["locked"] = locked_value
+    return Round(**r)
