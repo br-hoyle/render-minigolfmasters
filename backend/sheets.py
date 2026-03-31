@@ -73,11 +73,7 @@ def _coerce_rows(rows) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL: dict[str, int] = {
-<<<<<<< Updated upstream
-    "scores":            15,   # Changes frequently during active tournaments
-=======
     "scores":            15,
->>>>>>> Stashed changes
     "registrations":     30,
     "handicap_requests": 30,
     "tournaments":       60,
@@ -525,33 +521,11 @@ def update_score(score_id: str, updates: dict) -> None:
     _invalidate("scores")
 
 
-<<<<<<< Updated upstream
-def upsert_score(registration_id: str, round_id: str, hole_id: str, updates: dict) -> dict | None:
-    """Update an existing score or insert if not found. Returns the existing record before update (or None if new)."""
-    scores = get_all_scores()
-    existing = next(
-        (s for s in scores if s["registration_id"] == registration_id
-         and s["round_id"] == round_id and s["hole_id"] == hole_id),
-        None,
-    )
-    if existing:
-        # Increment version on update
-        new_version = int(existing.get("version") or 1) + 1
-        updates["version"] = new_version
-        update_score(existing["score_id"], updates)
-        return existing
-    else:
-        if "version" not in updates:
-            updates["version"] = 1
-        insert_score(updates)
-        return None
-=======
 def upsert_score(registration_id: str, round_id: str, hole_id: str, row: dict) -> tuple[dict | None, dict]:
     """
     Insert or update a score identified by (registration_id, round_id, hole_id).
     Returns (previous_row_or_None, new_row). The version is incremented on update.
     """
-    # Fetch the existing score first so callers can inspect the previous state
     with _cursor() as cur:
         cur.execute(
             """
@@ -585,7 +559,6 @@ def upsert_score(registration_id: str, round_id: str, hole_id: str, row: dict) -
         updated = cur.fetchone()
     _invalidate("scores")
     return previous, _coerce(updated)
->>>>>>> Stashed changes
 
 
 # ---------------------------------------------------------------------------
@@ -593,25 +566,6 @@ def upsert_score(registration_id: str, round_id: str, hole_id: str, row: dict) -
 # ---------------------------------------------------------------------------
 
 def get_score_audit_logs_by_score(score_id: str) -> list[dict]:
-<<<<<<< Updated upstream
-    all_logs = _get_cached("score_audit_log")
-    return [log for log in all_logs if log["score_id"] == score_id]
-
-
-def insert_score_audit_log(row: dict) -> None:
-    sheet = _get_sheet("score_audit_log")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
-    _invalidate("score_audit_log")
-=======
-    def _fetch():
-        with _cursor() as cur:
-            cur.execute(
-                "SELECT * FROM score_audit_log WHERE score_id = %s ORDER BY modified_at",
-                (score_id,),
-            )
-            return _coerce_rows(cur.fetchall())
-    # Not cached — audit logs are small, infrequently read, and must be fresh
     with _cursor() as cur:
         cur.execute(
             "SELECT * FROM score_audit_log WHERE score_id = %s ORDER BY modified_at",
@@ -632,7 +586,6 @@ def insert_score_audit_log(row: dict) -> None:
             """,
             row,
         )
->>>>>>> Stashed changes
 
 
 # ---------------------------------------------------------------------------
@@ -640,15 +593,11 @@ def insert_score_audit_log(row: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_handicap_requests() -> list[dict]:
-<<<<<<< Updated upstream
-    return _get_cached("handicap_requests")
-=======
     def _fetch():
         with _cursor() as cur:
             cur.execute("SELECT * FROM handicap_requests ORDER BY submitted_at DESC")
             return _coerce_rows(cur.fetchall())
     return _get_cached("handicap_requests", _fetch)
->>>>>>> Stashed changes
 
 
 def get_handicap_requests_by_user(user_id: str) -> list[dict]:
@@ -656,11 +605,6 @@ def get_handicap_requests_by_user(user_id: str) -> list[dict]:
 
 
 def insert_handicap_request(row: dict) -> None:
-<<<<<<< Updated upstream
-    sheet = _get_sheet("handicap_requests")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
-=======
     with _cursor() as cur:
         cur.execute(
             """
@@ -673,24 +617,10 @@ def insert_handicap_request(row: dict) -> None:
             """,
             row,
         )
->>>>>>> Stashed changes
     _invalidate("handicap_requests")
 
 
 def update_handicap_request(request_id: str, updates: dict) -> None:
-<<<<<<< Updated upstream
-    sheet = _get_sheet("handicap_requests")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    for i, record in enumerate(records, start=2):
-        if record["request_id"] == request_id:
-            for key, value in updates.items():
-                if key in headers:
-                    col = headers.index(key) + 1
-                    sheet.update_cell(i, col, value)
-            _invalidate("handicap_requests")
-            return
-=======
     clause, vals = _build_set(updates)
     with _cursor() as cur:
         cur.execute(
@@ -698,4 +628,3 @@ def update_handicap_request(request_id: str, updates: dict) -> None:
             vals + [request_id],
         )
     _invalidate("handicap_requests")
->>>>>>> Stashed changes

@@ -252,9 +252,22 @@ def admin_stats(current_user: dict = Depends(require_admin)):
         if r.get("status") == "pending"
     )
 
+    upcoming_active_tournaments = sum(
+        1 for t in all_tournaments
+        if t.get("end_date", "") >= today
+    )
+
+    all_users = sheets.get_all_users()
+    invited_users = sum(
+        1 for u in all_users
+        if not u.get("password_hash") and u.get("status") != "inactive"
+    )
+
     return {
         "pending_registrations": pending_registrations,
         "active_tournaments": active_tournaments,
+        "upcoming_active_tournaments": upcoming_active_tournaments,
         "last_score_submitted_at": last_score_submitted_at,
         "pending_handicap_requests": pending_handicap_requests,
+        "invited_users": invited_users,
     }
