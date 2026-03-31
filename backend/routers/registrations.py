@@ -33,6 +33,9 @@ def list_registrations(
     if tournament_id:
         # Public — tournament leaderboard / scores pages need this without auth
         regs = sheets.get_registrations_by_tournament(tournament_id)
+    elif current_user and current_user.get("role") == "admin":
+        # Admins can fetch all registrations across all tournaments
+        regs = sheets.get_all_registrations()
     elif current_user:
         regs = sheets.get_registrations_by_user(current_user["user_id"])
     else:

@@ -7,9 +7,7 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     plan: free
     envVars:
-      - key: GOOGLE_SHEET_ID
-        sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+      - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET_KEY
         sync: false

@@ -10,6 +10,7 @@ class User(BaseModel):
     role: str
     status: str = "active"  # active | inactive
     created_at: str
+    invite_pending: bool = False  # True when password_hash is empty (invite not yet accepted)
 
     # Excluded from responses: password_hash, invite_token
     model_config = {"extra": "ignore"}

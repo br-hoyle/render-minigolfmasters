@@ -9,17 +9,6 @@ function fmtDate(d) {
   return `${m}/${day}/${y}`
 }
 
-function timeAgo(isoStr) {
-  if (!isoStr) return '—'
-  const diff = Date.now() - new Date(isoStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
-}
-
 const STATUS_FILTER_OPTIONS = ['All', 'Upcoming', 'Active', 'Complete']
 
 export default function Dashboard() {
@@ -88,32 +77,45 @@ export default function Dashboard() {
       {/* Stat cards */}
       {stats && (
         <div className="grid grid-cols-2 gap-3">
+          {/* Pending Registrations → /admin/registrations */}
           <Link
-            to="/admin"
+            to="/admin/registrations"
             className="bg-white border border-silver rounded-xl p-4 hover:border-forest transition-colors"
           >
-            <p className="text-2xl font-display font-black text-gray-900">{stats.pending_registrations ?? 0}</p>
+            <p className="text-2xl font-display font-black text-gray-900">
+              {stats.pending_registrations ?? 0}
+            </p>
             <p className="text-xs text-gray-500 mt-0.5 font-semibold">Pending Registrations</p>
           </Link>
+
+          {/* Handicap Requests → /admin/users?tab=handicap-requests */}
           <Link
-            to="/admin"
+            to="/admin/users?tab=handicap-requests"
             className="bg-white border border-silver rounded-xl p-4 hover:border-forest transition-colors"
           >
-            <p className="text-2xl font-display font-black text-gray-900">{stats.active_tournaments ?? 0}</p>
-            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Active Tournaments</p>
-          </Link>
-          <div className="bg-white border border-silver rounded-xl p-4">
-            <p className="text-2xl font-display font-black text-gray-900 truncate">
-              {timeAgo(stats.last_score_submitted_at)}
+            <p className="text-2xl font-display font-black text-gray-900">
+              {stats.pending_handicap_requests ?? 0}
             </p>
-            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Last Score</p>
+            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Handicap Requests</p>
+          </Link>
+
+          {/* Upcoming & Active Tournaments — no redirect */}
+          <div className="bg-white border border-silver rounded-xl p-4">
+            <p className="text-2xl font-display font-black text-gray-900">
+              {stats.upcoming_active_tournaments ?? stats.active_tournaments ?? 0}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Upcoming & Active</p>
           </div>
+
+          {/* Invited Users → /admin/users?status=Invited */}
           <Link
-            to="/admin/users"
+            to="/admin/users?status=Invited"
             className="bg-white border border-silver rounded-xl p-4 hover:border-forest transition-colors"
           >
-            <p className="text-2xl font-display font-black text-gray-900">{stats.pending_handicap_requests ?? 0}</p>
-            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Handicap Requests</p>
+            <p className="text-2xl font-display font-black text-gray-900">
+              {stats.invited_users ?? 0}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5 font-semibold">Invited Users</p>
           </Link>
         </div>
       )}
@@ -122,13 +124,13 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-3">
         <Link
           to="/admin/users"
-          className="bg-forest text-white rounded-xl py-8 font-semibold text-center text-lg hover:bg-emerald transition-colors"
+          className="bg-forest text-white rounded-xl py-6 font-semibold text-center text-sm hover:bg-emerald transition-colors"
         >
           Manage Users
         </Link>
         <Link
           to="/admin/courses"
-          className="bg-forest text-white rounded-xl py-8 font-semibold text-center text-lg hover:bg-emerald transition-colors"
+          className="bg-forest text-white rounded-xl py-6 font-semibold text-center text-sm hover:bg-emerald transition-colors"
         >
           Manage Courses
         </Link>
