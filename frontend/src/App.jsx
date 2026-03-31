@@ -24,7 +24,6 @@ import ManageCourses from './pages/admin/ManageCourses'
 import ManageUsers from './pages/admin/ManageUsers'
 import AdminRoundScores from './pages/admin/AdminRoundScores'
 import AllRegistrations from './pages/admin/AllRegistrations'
-import ManageHandicaps from './pages/admin/ManageHandicaps'
 
 export default function App() {
   return (
@@ -61,7 +60,6 @@ export default function App() {
               <Route path="/admin/tournaments/:tournamentId/rounds/:roundId/scores" element={<AdminRoundScores />} />
               <Route path="/admin/courses" element={<ManageCourses />} />
               <Route path="/admin/users" element={<ManageUsers />} />
-              <Route path="/admin/handicaps" element={<ManageHandicaps />} />
             </Route>
           </Route>
         </Routes>
