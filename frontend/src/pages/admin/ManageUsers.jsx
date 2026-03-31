@@ -3,7 +3,28 @@ import { Link } from 'react-router-dom'
 import { api } from '../../api/client'
 import Dialog from '../../components/Dialog'
 
-const ROLE_FILTER_OPTIONS = ['All', 'Player', 'Admin', 'Inactive']
+const ROLE_FILTER_OPTIONS = ['All', 'Player', 'Admin']
+const STATUS_FILTER_OPTIONS = ['All', 'Invited', 'Active', 'Deactivated']
+
+function userAccountStatus(u) {
+  if (u.status === 'inactive') return 'deactivated'
+  if (u.invite_pending) return 'invited'
+  return 'active'
+}
+
+function StatusBadge({ status }) {
+  const styles = {
+    invited:     'bg-[#FBF50D] text-gray-800',
+    active:      'bg-[#079E78]/15 text-[#079E78]',
+    deactivated: 'bg-red-50 text-[#CC0131]',
+  }
+  const labels = { invited: 'Invited', active: 'Active', deactivated: 'Deactivated' }
+  return (
+    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${styles[status]}`}>
+      {labels[status]}
+    </span>
+  )
+}
 
 function formatPhone(value) {
   const digits = value.replace(/\D/g, '').slice(0, 10)
@@ -38,6 +59,8 @@ export default function ManageUsers() {
 
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('All')
+  const [resendingInvite, setResendingInvite] = useState(null) // user_id being resent
 
   // Handicap requests state
   const [handicapRequests, setHandicapRequests] = useState([])
@@ -58,12 +81,12 @@ export default function ManageUsers() {
     return users.filter((u) => {
       const name = `${u.first_name} ${u.last_name}`.toLowerCase()
       const matchesSearch = !search || name.includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
-      const matchesRole =
-        roleFilter === 'All' ||
-        (roleFilter === 'Inactive' ? u.status === 'inactive' : u.role === roleFilter.toLowerCase() && u.status !== 'inactive')
-      return matchesSearch && matchesRole
+      const matchesRole = roleFilter === 'All' || u.role === roleFilter.toLowerCase()
+      const acctStatus = userAccountStatus(u)
+      const matchesStatus = statusFilter === 'All' || acctStatus === statusFilter.toLowerCase()
+      return matchesSearch && matchesRole && matchesStatus
     })
-  }, [users, search, roleFilter])
+  }, [users, search, roleFilter, statusFilter])
 
   const pendingRequests = handicapRequests.filter((r) => r.status === 'pending')
 
@@ -109,6 +132,22 @@ export default function ManageUsers() {
       setUsers((us) => us.map((u) => (u.user_id === userId ? updated : u)))
     } finally {
       setUpdating(null)
+    }
+  }
+
+  async function handleResendInvite(userId) {
+    setResendingInvite(userId)
+    try {
+      const data = await api.post(`/users/${userId}/resend-invite`, {})
+      if (data.email_sent === false) {
+        alert(`Email delivery failed — share this link manually:\n${data.invite_url}`)
+      } else {
+        alert('Invite resent successfully.')
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to resend invite')
+    } finally {
+      setResendingInvite(null)
     }
   }
 
@@ -171,21 +210,40 @@ export default function ManageUsers() {
         className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
       />
 
-      {/* Filter pills */}
-      <div className="flex gap-2 flex-wrap">
-        {ROLE_FILTER_OPTIONS.map((opt) => (
-          <button
-            key={opt}
-            onClick={() => setRoleFilter(opt)}
-            className={`rounded-full px-4 py-1.5 text-sm font-semibold cursor-pointer transition-colors ${
-              roleFilter === opt
-                ? 'bg-forest text-white'
-                : 'bg-white text-gray-600 border border-silver hover:bg-gray-50'
-            }`}
-          >
-            {opt}
-          </button>
-        ))}
+      {/* Filters */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold text-gray-500 uppercase tracking-wide w-12">Role</span>
+          {ROLE_FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              onClick={() => setRoleFilter(opt)}
+              className={`rounded-full px-4 py-1.5 text-sm font-semibold cursor-pointer transition-colors ${
+                roleFilter === opt
+                  ? 'bg-forest text-white'
+                  : 'bg-white text-gray-600 border border-silver hover:bg-gray-50'
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-bold text-gray-500 uppercase tracking-wide w-12">Status</span>
+          {STATUS_FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              onClick={() => setStatusFilter(opt)}
+              className={`rounded-full px-4 py-1.5 text-sm font-semibold cursor-pointer transition-colors ${
+                statusFilter === opt
+                  ? 'bg-forest text-white'
+                  : 'bg-white text-gray-600 border border-silver hover:bg-gray-50'
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* User list */}
@@ -195,33 +253,43 @@ export default function ManageUsers() {
         )}
         {filteredUsers.map((u) => {
           const isInactive = u.status === 'inactive'
+          const acctStatus = userAccountStatus(u)
           return (
             <div
               key={u.user_id}
               className={`bg-white rounded-xl border border-silver p-4 space-y-2 ${isInactive ? 'opacity-60' : ''}`}
             >
-              {/* Row 1: name + role + deactivate */}
-              <div className="flex items-center justify-between gap-3">
+              {/* Row 1: name + status badge */}
+              <div className="flex items-center gap-2 flex-wrap">
                 <p className="font-bold text-lg text-gray-900">
                   {u.first_name} {u.last_name}
-                  {isInactive && (
-                    <span className="ml-2 text-xs font-bold text-[#CC0131] bg-red-50 px-1.5 py-0.5 rounded">
-                      Inactive
-                    </span>
-                  )}
                 </p>
+                <StatusBadge status={acctStatus} />
+              </div>
+
+              {/* Row 2: role select + actions */}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <select
+                  value={u.role}
+                  disabled={updating === u.user_id || isInactive}
+                  onChange={(e) => handleRoleChange(u.user_id, e.target.value)}
+                  className={`text-xs font-bold px-3 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-forest disabled:opacity-60 disabled:cursor-not-allowed ${
+                    u.role === 'admin' ? 'bg-forest text-white' : 'bg-silver text-gray-600'
+                  }`}
+                >
+                  <option value="player">player</option>
+                  <option value="admin">admin</option>
+                </select>
                 <div className="flex items-center gap-2 shrink-0">
-                  <select
-                    value={u.role}
-                    disabled={updating === u.user_id || isInactive}
-                    onChange={(e) => handleRoleChange(u.user_id, e.target.value)}
-                    className={`text-xs font-bold px-3 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-forest disabled:opacity-60 disabled:cursor-not-allowed ${
-                      u.role === 'admin' ? 'bg-forest text-white' : 'bg-silver text-gray-600'
-                    }`}
-                  >
-                    <option value="player">player</option>
-                    <option value="admin">admin</option>
-                  </select>
+                  {acctStatus === 'invited' && (
+                    <button
+                      onClick={() => handleResendInvite(u.user_id)}
+                      disabled={resendingInvite === u.user_id}
+                      className="text-xs font-semibold px-3 py-1 rounded-full border border-forest text-forest hover:bg-forest hover:text-white transition-colors disabled:opacity-60"
+                    >
+                      {resendingInvite === u.user_id ? 'Sending…' : 'Resend Invite'}
+                    </button>
+                  )}
                   <button
                     onClick={() => handleToggleStatus(u.user_id, u.status)}
                     disabled={updating === u.user_id}
@@ -236,12 +304,12 @@ export default function ManageUsers() {
                 </div>
               </div>
 
-              {/* Row 2: Joined date */}
+              {/* Row 3: joined date */}
               <p className="italic text-xs text-gray-400">
-                Joined {fmtJoined(u.created_at)}
+                Invited {fmtJoined(u.created_at)}
               </p>
 
-              {/* Row 3: email | phone */}
+              {/* Row 4: email | phone */}
               <p className="text-sm text-gray-600">
                 {u.email}
                 {u.phone && ` | ${u.phone}`}

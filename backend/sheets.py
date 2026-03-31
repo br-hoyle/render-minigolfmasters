@@ -1,32 +1,83 @@
 """
-Google Sheets abstraction layer.
+Database abstraction layer — Supabase (PostgreSQL via psycopg2).
 
-This is the ONLY file that imports or calls the Google Sheets API.
+This is the ONLY file that imports or calls the database.
 All routers call helper functions defined here.
 """
 
-import json
 import time
-from typing import Any
+from contextlib import contextmanager
+from datetime import date, datetime
 
-import gspread
-from google.oauth2.service_account import Credentials
+import psycopg2
+import psycopg2.extras
 
-from config import GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON
-
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-]
-
-_client: gspread.Client | None = None
-_spreadsheet: gspread.Spreadsheet | None = None
+from config import DATABASE_URL
 
 # ---------------------------------------------------------------------------
-# In-memory TTL cache — reduces Sheets API calls from ~45 to ~20 per action
+# Connection — module-level singleton with automatic reconnect
+# ---------------------------------------------------------------------------
+
+_conn = None
+
+
+def _get_conn():
+    global _conn
+    try:
+        if _conn is None or _conn.closed:
+            raise Exception("reconnect")
+        # Cheap liveness check
+        _conn.cursor().execute("SELECT 1")
+    except Exception:
+        _conn = psycopg2.connect(DATABASE_URL)
+        _conn.autocommit = True
+    return _conn
+
+
+@contextmanager
+def _cursor():
+    conn = _get_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        yield cur
+
+
+# ---------------------------------------------------------------------------
+# Type coercion
+# psycopg2 returns Python date/datetime objects for DATE/TIMESTAMPTZ columns.
+# All routers and Pydantic models expect plain strings, so we normalise every
+# returned row here. Callers never see Python date/datetime objects.
+# ---------------------------------------------------------------------------
+
+def _coerce(row) -> dict:
+    """Convert date/datetime → ISO string; None → ''. Returns a plain dict."""
+    out = {}
+    for k, v in dict(row).items():
+        if isinstance(v, datetime):
+            out[k] = v.isoformat()
+        elif isinstance(v, date):
+            out[k] = v.isoformat()   # "YYYY-MM-DD"
+        elif v is None:
+            out[k] = ""
+        else:
+            out[k] = v
+    return out
+
+
+def _coerce_rows(rows) -> list[dict]:
+    return [_coerce(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# In-memory TTL cache — reduces DB round-trips during active tournaments.
+# Writes call _invalidate() so the next read always fetches fresh data.
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL: dict[str, int] = {
+<<<<<<< Updated upstream
     "scores":            15,   # Changes frequently during active tournaments
+=======
+    "scores":            15,
+>>>>>>> Stashed changes
     "registrations":     30,
     "handicap_requests": 30,
     "tournaments":       60,
@@ -40,41 +91,29 @@ _CACHE_TTL: dict[str, int] = {
 }
 
 _cache: dict[str, dict] = {}
-# Shape: { tab_name: {"data": list[dict], "ts": float} }
 
 
-def _get_cached(tab: str) -> list[dict]:
-    """Return cached data for tab if within TTL, otherwise fetch fresh from Sheets."""
-    entry = _cache.get(tab)
-    if entry and (time.monotonic() - entry["ts"]) < _CACHE_TTL[tab]:
+def _get_cached(table: str, query_fn) -> list[dict]:
+    entry = _cache.get(table)
+    if entry and (time.monotonic() - entry["ts"]) < _CACHE_TTL[table]:
         return entry["data"]
-    fresh = _rows_to_dicts(_get_sheet(tab))
-    _cache[tab] = {"data": fresh, "ts": time.monotonic()}
+    fresh = query_fn()
+    _cache[table] = {"data": fresh, "ts": time.monotonic()}
     return fresh
 
 
-def _invalidate(tab: str) -> None:
-    """Remove tab from cache so the next read fetches fresh data."""
-    _cache.pop(tab, None)
+def _invalidate(table: str) -> None:
+    _cache.pop(table, None)
 
 
-def _get_spreadsheet() -> gspread.Spreadsheet:
-    global _client, _spreadsheet
-    if _spreadsheet is None:
-        creds_dict = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
-        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        _client = gspread.authorize(creds)
-        _spreadsheet = _client.open_by_key(GOOGLE_SHEET_ID)
-    return _spreadsheet
+# ---------------------------------------------------------------------------
+# Generic helpers
+# ---------------------------------------------------------------------------
 
-
-def _get_sheet(tab: str) -> gspread.Worksheet:
-    return _get_spreadsheet().worksheet(tab)
-
-
-def _rows_to_dicts(sheet: gspread.Worksheet) -> list[dict[str, Any]]:
-    records = sheet.get_all_records()
-    return records
+def _build_set(updates: dict) -> tuple[str, list]:
+    """Build a SQL SET clause from a dict. Keys must be trusted column names."""
+    clause = ", ".join(f"{k} = %s" for k in updates)
+    return clause, list(updates.values())
 
 
 # ---------------------------------------------------------------------------
@@ -82,43 +121,55 @@ def _rows_to_dicts(sheet: gspread.Worksheet) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def get_all_users() -> list[dict]:
-    return _get_cached("users")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM users ORDER BY created_at")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("users", _fetch)
 
 
 def get_user_by_email(email: str) -> dict | None:
-    users = get_all_users()
-    return next((u for u in users if u["email"] == email), None)
+    with _cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+        row = cur.fetchone()
+        return _coerce(row) if row else None
 
 
 def get_user_by_id(user_id: str) -> dict | None:
-    users = get_all_users()
-    return next((u for u in users if u["user_id"] == user_id), None)
+    with _cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        return _coerce(row) if row else None
 
 
 def get_user_by_invite_token(token: str) -> dict | None:
-    users = get_all_users()
-    return next((u for u in users if u["invite_token"] == token), None)
+    with _cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE invite_token = %s", (token,))
+        row = cur.fetchone()
+        return _coerce(row) if row else None
 
 
 def insert_user(row: dict) -> None:
-    sheet = _get_sheet("users")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO users
+                (user_id, first_name, last_name, email, phone,
+                 password_hash, invite_token, role, status, created_at)
+            VALUES
+                (%(user_id)s, %(first_name)s, %(last_name)s, %(email)s, %(phone)s,
+                 %(password_hash)s, %(invite_token)s, %(role)s, %(status)s, %(created_at)s)
+            """,
+            row,
+        )
     _invalidate("users")
 
 
 def update_user(user_id: str, updates: dict) -> None:
-    sheet = _get_sheet("users")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    for i, record in enumerate(records, start=2):
-        if record["user_id"] == user_id:
-            for key, value in updates.items():
-                if key in headers:
-                    col = headers.index(key) + 1
-                    sheet.update_cell(i, col, value)
-            _invalidate("users")
-            return
+    clause, vals = _build_set(updates)
+    with _cursor() as cur:
+        cur.execute(f"UPDATE users SET {clause} WHERE user_id = %s", vals + [user_id])
+    _invalidate("users")
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +177,11 @@ def update_user(user_id: str, updates: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_courses() -> list[dict]:
-    return _get_cached("courses")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM courses ORDER BY name")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("courses", _fetch)
 
 
 def get_course_by_id(course_id: str) -> dict | None:
@@ -134,34 +189,28 @@ def get_course_by_id(course_id: str) -> dict | None:
 
 
 def insert_course(row: dict) -> None:
-    sheet = _get_sheet("courses")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO courses (course_id, name, address, description, deleted_at)
+            VALUES (%(course_id)s, %(name)s, %(address)s, %(description)s, %(deleted_at)s)
+            """,
+            row,
+        )
     _invalidate("courses")
 
 
 def update_course(course_id: str, updates: dict) -> None:
-    sheet = _get_sheet("courses")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    for i, record in enumerate(records, start=2):
-        if record["course_id"] == course_id:
-            for key, value in updates.items():
-                if key in headers:
-                    col = headers.index(key) + 1
-                    sheet.update_cell(i, col, value)
-            _invalidate("courses")
-            return
+    clause, vals = _build_set(updates)
+    with _cursor() as cur:
+        cur.execute(f"UPDATE courses SET {clause} WHERE course_id = %s", vals + [course_id])
+    _invalidate("courses")
 
 
 def delete_course(course_id: str) -> None:
-    sheet = _get_sheet("courses")
-    records = sheet.get_all_records()
-    for i, record in enumerate(records, start=2):
-        if record["course_id"] == course_id:
-            sheet.delete_rows(i)
-            _invalidate("courses")
-            return
+    with _cursor() as cur:
+        cur.execute("DELETE FROM courses WHERE course_id = %s", (course_id,))
+    _invalidate("courses")
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +218,11 @@ def delete_course(course_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_holes() -> list[dict]:
-    return _get_cached("holes")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM holes ORDER BY course_id, hole_number")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("holes", _fetch)
 
 
 def get_holes_by_course(course_id: str) -> list[dict]:
@@ -177,34 +230,25 @@ def get_holes_by_course(course_id: str) -> list[dict]:
 
 
 def insert_hole(row: dict) -> None:
-    sheet = _get_sheet("holes")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            "INSERT INTO holes (hole_id, course_id, hole_number) VALUES (%(hole_id)s, %(course_id)s, %(hole_number)s)",
+            row,
+        )
     _invalidate("holes")
 
 
 def update_hole(hole_id: str, updates: dict) -> None:
-    sheet = _get_sheet("holes")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    for i, record in enumerate(records, start=2):
-        if record["hole_id"] == hole_id:
-            for key, value in updates.items():
-                if key in headers:
-                    col = headers.index(key) + 1
-                    sheet.update_cell(i, col, value)
-            _invalidate("holes")
-            return
+    clause, vals = _build_set(updates)
+    with _cursor() as cur:
+        cur.execute(f"UPDATE holes SET {clause} WHERE hole_id = %s", vals + [hole_id])
+    _invalidate("holes")
 
 
 def delete_hole(hole_id: str) -> None:
-    sheet = _get_sheet("holes")
-    records = sheet.get_all_records()
-    for i, record in enumerate(records, start=2):
-        if record["hole_id"] == hole_id:
-            sheet.delete_rows(i)
-            _invalidate("holes")
-            return
+    with _cursor() as cur:
+        cur.execute("DELETE FROM holes WHERE hole_id = %s", (hole_id,))
+    _invalidate("holes")
 
 
 # ---------------------------------------------------------------------------
@@ -212,36 +256,42 @@ def delete_hole(hole_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_pars() -> list[dict]:
-    return _get_cached("pars")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM pars ORDER BY hole_id, active_from")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("pars", _fetch)
 
 
 def get_pars_for_date(tournament_start_date: str) -> list[dict]:
-    """Return pars active on tournament_start_date (SCD lookup).
-    Compares date portion only to support datetime-stored active_from values.
-    """
-    return [
-        p for p in get_all_pars()
-        if str(p["active_from"])[:10] <= tournament_start_date <= str(p["active_to"])[:10]
-    ]
+    """Return pars active on tournament_start_date (SCD lookup)."""
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT * FROM pars
+            WHERE active_from <= %s::date AND active_to >= %s::date
+            """,
+            (tournament_start_date, tournament_start_date),
+        )
+        return _coerce_rows(cur.fetchall())
 
 
 def insert_par(row: dict) -> None:
-    sheet = _get_sheet("pars")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO pars (par_id, hole_id, par_strokes, active_from, active_to)
+            VALUES (%(par_id)s, %(hole_id)s, %(par_strokes)s, %(active_from)s, %(active_to)s)
+            """,
+            row,
+        )
     _invalidate("pars")
 
 
 def close_par(par_id: str, active_to: str) -> None:
-    sheet = _get_sheet("pars")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    col = headers.index("active_to") + 1
-    for i, record in enumerate(records, start=2):
-        if record["par_id"] == par_id:
-            sheet.update_cell(i, col, active_to)
-            _invalidate("pars")
-            return
+    with _cursor() as cur:
+        cur.execute("UPDATE pars SET active_to = %s::date WHERE par_id = %s", (active_to, par_id))
+    _invalidate("pars")
 
 
 # ---------------------------------------------------------------------------
@@ -249,37 +299,48 @@ def close_par(par_id: str, active_to: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_handicaps() -> list[dict]:
-    return _get_cached("handicaps")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM handicaps ORDER BY user_id, active_from")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("handicaps", _fetch)
 
 
 def get_handicap_for_user_date(user_id: str, tournament_start_date: str) -> dict | None:
-    return next(
-        (
-            h for h in get_all_handicaps()
-            if h["user_id"] == user_id
-            and str(h["active_from"])[:10] <= tournament_start_date <= str(h["active_to"])[:10]
-        ),
-        None,
-    )
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT * FROM handicaps
+            WHERE user_id = %s
+              AND active_from <= %s::date
+              AND active_to   >= %s::date
+            LIMIT 1
+            """,
+            (user_id, tournament_start_date, tournament_start_date),
+        )
+        row = cur.fetchone()
+        return _coerce(row) if row else None
 
 
 def insert_handicap(row: dict) -> None:
-    sheet = _get_sheet("handicaps")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO handicaps (handicap_id, user_id, strokes, active_from, active_to)
+            VALUES (%(handicap_id)s, %(user_id)s, %(strokes)s, %(active_from)s, %(active_to)s)
+            """,
+            row,
+        )
     _invalidate("handicaps")
 
 
 def close_handicap(handicap_id: str, active_to: str) -> None:
-    sheet = _get_sheet("handicaps")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    col = headers.index("active_to") + 1
-    for i, record in enumerate(records, start=2):
-        if record["handicap_id"] == handicap_id:
-            sheet.update_cell(i, col, active_to)
-            _invalidate("handicaps")
-            return
+    with _cursor() as cur:
+        cur.execute(
+            "UPDATE handicaps SET active_to = %s::date WHERE handicap_id = %s",
+            (active_to, handicap_id),
+        )
+    _invalidate("handicaps")
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +348,11 @@ def close_handicap(handicap_id: str, active_to: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_tournaments() -> list[dict]:
-    return _get_cached("tournaments")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM tournaments ORDER BY start_date DESC")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("tournaments", _fetch)
 
 
 def get_tournament_by_id(tournament_id: str) -> dict | None:
@@ -295,24 +360,29 @@ def get_tournament_by_id(tournament_id: str) -> dict | None:
 
 
 def insert_tournament(row: dict) -> None:
-    sheet = _get_sheet("tournaments")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO tournaments
+                (tournament_id, name, start_date, end_date, tournament_admin_id,
+                 entry_fee, max_players, registration_deadline, deleted_at)
+            VALUES
+                (%(tournament_id)s, %(name)s, %(start_date)s, %(end_date)s, %(tournament_admin_id)s,
+                 %(entry_fee)s, %(max_players)s, %(registration_deadline)s, %(deleted_at)s)
+            """,
+            row,
+        )
     _invalidate("tournaments")
 
 
 def update_tournament(tournament_id: str, updates: dict) -> None:
-    sheet = _get_sheet("tournaments")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    for i, record in enumerate(records, start=2):
-        if record["tournament_id"] == tournament_id:
-            for key, value in updates.items():
-                if key in headers:
-                    col = headers.index(key) + 1
-                    sheet.update_cell(i, col, value)
-            _invalidate("tournaments")
-            return
+    clause, vals = _build_set(updates)
+    with _cursor() as cur:
+        cur.execute(
+            f"UPDATE tournaments SET {clause} WHERE tournament_id = %s",
+            vals + [tournament_id],
+        )
+    _invalidate("tournaments")
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +390,11 @@ def update_tournament(tournament_id: str, updates: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_rounds() -> list[dict]:
-    return _get_cached("rounds")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM rounds ORDER BY tournament_id, round_number")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("rounds", _fetch)
 
 
 def get_rounds_by_tournament(tournament_id: str) -> list[dict]:
@@ -332,34 +406,28 @@ def get_round_by_id(round_id: str) -> dict | None:
 
 
 def insert_round(row: dict) -> None:
-    sheet = _get_sheet("rounds")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO rounds (round_id, tournament_id, course_id, round_number, label, locked)
+            VALUES (%(round_id)s, %(tournament_id)s, %(course_id)s, %(round_number)s, %(label)s, %(locked)s)
+            """,
+            row,
+        )
     _invalidate("rounds")
 
 
 def update_round(round_id: str, updates: dict) -> None:
-    sheet = _get_sheet("rounds")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    for i, record in enumerate(records, start=2):
-        if record["round_id"] == round_id:
-            for key, value in updates.items():
-                if key in headers:
-                    col = headers.index(key) + 1
-                    sheet.update_cell(i, col, value)
-            _invalidate("rounds")
-            return
+    clause, vals = _build_set(updates)
+    with _cursor() as cur:
+        cur.execute(f"UPDATE rounds SET {clause} WHERE round_id = %s", vals + [round_id])
+    _invalidate("rounds")
 
 
 def delete_round(round_id: str) -> None:
-    sheet = _get_sheet("rounds")
-    records = sheet.get_all_records()
-    for i, record in enumerate(records, start=2):
-        if record["round_id"] == round_id:
-            sheet.delete_rows(i)
-            _invalidate("rounds")
-            return
+    with _cursor() as cur:
+        cur.execute("DELETE FROM rounds WHERE round_id = %s", (round_id,))
+    _invalidate("rounds")
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +435,11 @@ def delete_round(round_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_registrations() -> list[dict]:
-    return _get_cached("registrations")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM registrations ORDER BY submitted_at DESC")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("registrations", _fetch)
 
 
 def get_registrations_by_tournament(tournament_id: str) -> list[dict]:
@@ -379,28 +451,31 @@ def get_registrations_by_user(user_id: str) -> list[dict]:
 
 
 def get_registration_by_id(registration_id: str) -> dict | None:
-    return next((r for r in get_all_registrations() if r["registration_id"] == registration_id), None)
+    return next(
+        (r for r in get_all_registrations() if r["registration_id"] == registration_id), None
+    )
 
 
 def insert_registration(row: dict) -> None:
-    sheet = _get_sheet("registrations")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO registrations (registration_id, tournament_id, user_id, status, submitted_at)
+            VALUES (%(registration_id)s, %(tournament_id)s, %(user_id)s, %(status)s, %(submitted_at)s)
+            """,
+            row,
+        )
     _invalidate("registrations")
 
 
 def update_registration(registration_id: str, updates: dict) -> None:
-    sheet = _get_sheet("registrations")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    for i, record in enumerate(records, start=2):
-        if record["registration_id"] == registration_id:
-            for key, value in updates.items():
-                if key in headers:
-                    col = headers.index(key) + 1
-                    sheet.update_cell(i, col, value)
-            _invalidate("registrations")
-            return
+    clause, vals = _build_set(updates)
+    with _cursor() as cur:
+        cur.execute(
+            f"UPDATE registrations SET {clause} WHERE registration_id = %s",
+            vals + [registration_id],
+        )
+    _invalidate("registrations")
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +483,11 @@ def update_registration(registration_id: str, updates: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_scores() -> list[dict]:
-    return _get_cached("scores")
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM scores ORDER BY submitted_at DESC")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("scores", _fetch)
 
 
 def get_scores_by_registration(registration_id: str) -> list[dict]:
@@ -424,26 +503,29 @@ def get_score_by_id(score_id: str) -> dict | None:
 
 
 def insert_score(row: dict) -> None:
-    sheet = _get_sheet("scores")
-    headers = sheet.row_values(1)
-    sheet.append_row([row.get(h, "") for h in headers])
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO scores
+                (score_id, user_id, registration_id, round_id, hole_id,
+                 strokes, submitted_at, last_modified_by, version)
+            VALUES
+                (%(score_id)s, %(user_id)s, %(registration_id)s, %(round_id)s, %(hole_id)s,
+                 %(strokes)s, %(submitted_at)s, %(last_modified_by)s, %(version)s)
+            """,
+            row,
+        )
     _invalidate("scores")
 
 
 def update_score(score_id: str, updates: dict) -> None:
-    sheet = _get_sheet("scores")
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    for i, record in enumerate(records, start=2):
-        if record["score_id"] == score_id:
-            for key, value in updates.items():
-                if key in headers:
-                    col = headers.index(key) + 1
-                    sheet.update_cell(i, col, value)
-            _invalidate("scores")
-            return
+    clause, vals = _build_set(updates)
+    with _cursor() as cur:
+        cur.execute(f"UPDATE scores SET {clause} WHERE score_id = %s", vals + [score_id])
+    _invalidate("scores")
 
 
+<<<<<<< Updated upstream
 def upsert_score(registration_id: str, round_id: str, hole_id: str, updates: dict) -> dict | None:
     """Update an existing score or insert if not found. Returns the existing record before update (or None if new)."""
     scores = get_all_scores()
@@ -463,6 +545,47 @@ def upsert_score(registration_id: str, round_id: str, hole_id: str, updates: dic
             updates["version"] = 1
         insert_score(updates)
         return None
+=======
+def upsert_score(registration_id: str, round_id: str, hole_id: str, row: dict) -> tuple[dict | None, dict]:
+    """
+    Insert or update a score identified by (registration_id, round_id, hole_id).
+    Returns (previous_row_or_None, new_row). The version is incremented on update.
+    """
+    # Fetch the existing score first so callers can inspect the previous state
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT * FROM scores
+            WHERE registration_id = %s AND round_id = %s AND hole_id = %s
+            """,
+            (registration_id, round_id, hole_id),
+        )
+        existing = cur.fetchone()
+    previous = _coerce(existing) if existing else None
+
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO scores
+                (score_id, user_id, registration_id, round_id, hole_id,
+                 strokes, submitted_at, last_modified_by, version)
+            VALUES
+                (%(score_id)s, %(user_id)s, %(registration_id)s, %(round_id)s, %(hole_id)s,
+                 %(strokes)s, %(submitted_at)s, %(last_modified_by)s, 1)
+            ON CONFLICT (registration_id, round_id, hole_id) DO UPDATE
+            SET
+                strokes           = EXCLUDED.strokes,
+                last_modified_by  = EXCLUDED.last_modified_by,
+                submitted_at      = EXCLUDED.submitted_at,
+                version           = scores.version + 1
+            RETURNING *
+            """,
+            row,
+        )
+        updated = cur.fetchone()
+    _invalidate("scores")
+    return previous, _coerce(updated)
+>>>>>>> Stashed changes
 
 
 # ---------------------------------------------------------------------------
@@ -470,6 +593,7 @@ def upsert_score(registration_id: str, round_id: str, hole_id: str, updates: dic
 # ---------------------------------------------------------------------------
 
 def get_score_audit_logs_by_score(score_id: str) -> list[dict]:
+<<<<<<< Updated upstream
     all_logs = _get_cached("score_audit_log")
     return [log for log in all_logs if log["score_id"] == score_id]
 
@@ -479,6 +603,36 @@ def insert_score_audit_log(row: dict) -> None:
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
     _invalidate("score_audit_log")
+=======
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute(
+                "SELECT * FROM score_audit_log WHERE score_id = %s ORDER BY modified_at",
+                (score_id,),
+            )
+            return _coerce_rows(cur.fetchall())
+    # Not cached — audit logs are small, infrequently read, and must be fresh
+    with _cursor() as cur:
+        cur.execute(
+            "SELECT * FROM score_audit_log WHERE score_id = %s ORDER BY modified_at",
+            (score_id,),
+        )
+        return _coerce_rows(cur.fetchall())
+
+
+def insert_score_audit_log(row: dict) -> None:
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO score_audit_log
+                (audit_id, score_id, previous_strokes, new_strokes, modified_by, modified_at)
+            VALUES
+                (%(audit_id)s, %(score_id)s, %(previous_strokes)s, %(new_strokes)s,
+                 %(modified_by)s, %(modified_at)s)
+            """,
+            row,
+        )
+>>>>>>> Stashed changes
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +640,15 @@ def insert_score_audit_log(row: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_handicap_requests() -> list[dict]:
+<<<<<<< Updated upstream
     return _get_cached("handicap_requests")
+=======
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM handicap_requests ORDER BY submitted_at DESC")
+            return _coerce_rows(cur.fetchall())
+    return _get_cached("handicap_requests", _fetch)
+>>>>>>> Stashed changes
 
 
 def get_handicap_requests_by_user(user_id: str) -> list[dict]:
@@ -494,13 +656,29 @@ def get_handicap_requests_by_user(user_id: str) -> list[dict]:
 
 
 def insert_handicap_request(row: dict) -> None:
+<<<<<<< Updated upstream
     sheet = _get_sheet("handicap_requests")
     headers = sheet.row_values(1)
     sheet.append_row([row.get(h, "") for h in headers])
+=======
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO handicap_requests
+                (request_id, user_id, requested_strokes, message, status,
+                 submitted_at, resolved_at, resolved_by)
+            VALUES
+                (%(request_id)s, %(user_id)s, %(requested_strokes)s, %(message)s, %(status)s,
+                 %(submitted_at)s, %(resolved_at)s, %(resolved_by)s)
+            """,
+            row,
+        )
+>>>>>>> Stashed changes
     _invalidate("handicap_requests")
 
 
 def update_handicap_request(request_id: str, updates: dict) -> None:
+<<<<<<< Updated upstream
     sheet = _get_sheet("handicap_requests")
     records = sheet.get_all_records()
     headers = sheet.row_values(1)
@@ -512,3 +690,12 @@ def update_handicap_request(request_id: str, updates: dict) -> None:
                     sheet.update_cell(i, col, value)
             _invalidate("handicap_requests")
             return
+=======
+    clause, vals = _build_set(updates)
+    with _cursor() as cur:
+        cur.execute(
+            f"UPDATE handicap_requests SET {clause} WHERE request_id = %s",
+            vals + [request_id],
+        )
+    _invalidate("handicap_requests")
+>>>>>>> Stashed changes

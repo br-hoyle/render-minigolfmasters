@@ -3,8 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
-GOOGLE_SERVICE_ACCOUNT_JSON = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 JWT_SECRET_KEY = os.environ["JWT_SECRET_KEY"]
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")

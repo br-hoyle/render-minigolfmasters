@@ -35,7 +35,12 @@ class UpdateMeRequest(BaseModel):
 
 @router.get("/", response_model=list[User])
 def list_users(current_user: dict = Depends(require_admin)):
-    return [User(**u) for u in sheets.get_all_users()]
+    result = []
+    for u in sheets.get_all_users():
+        user = User(**u)
+        user.invite_pending = not bool(u.get("password_hash", ""))
+        result.append(user)
+    return result
 
 
 @router.get("/public")
@@ -102,6 +107,30 @@ def invite_user(body: InviteRequest, current_user: dict = Depends(require_admin)
     )
 
     return {"detail": "Invite sent", "user_id": user_id, "email_sent": email_sent, "invite_url": invite_url}
+
+
+@router.post("/{user_id}/resend-invite", status_code=status.HTTP_200_OK)
+def resend_invite(user_id: str, _: dict = Depends(require_admin)):
+    user = sheets.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.get("password_hash"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User has already accepted their invite")
+    if user.get("status") == "inactive":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot resend invite to an inactive user")
+
+    # Regenerate a fresh token so old links stop working
+    token = auth_utils.generate_invite_token()
+    sheets.update_user(user_id, {"invite_token": token})
+
+    invite_url = f"{FRONTEND_URL}/accept-invite?token={token}"
+    email_sent = email_utils.send_email(
+        user["email"],
+        "You're invited to Mini Golf Masters",
+        f"Hi {user['first_name']},\n\nYou've been invited to Mini Golf Masters!\n\nCreate your account here:\n{invite_url}\n\nSee you on the course!",
+    )
+
+    return {"detail": "Invite resent", "email_sent": email_sent, "invite_url": invite_url}
 
 
 @router.get("/{user_id}/championships")
