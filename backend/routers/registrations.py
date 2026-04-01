@@ -20,6 +20,11 @@ class UpdateRegistrationRequest(BaseModel):
     status: str  # accepted | rejected | forfeit | waitlisted
 
 
+class AdminCreateRegistrationRequest(BaseModel):
+    tournament_id: str
+    user_id: str
+
+
 class BulkUpdateRegistrationRequest(BaseModel):
     registration_ids: list[str]
     status: str  # accepted | rejected | forfeit
@@ -81,6 +86,34 @@ def create_registration(body: CreateRegistrationRequest, current_user: dict = De
         "tournament_id": body.tournament_id,
         "user_id": current_user["user_id"],
         "status": reg_status,
+        "submitted_at": now,
+    }
+    sheets.insert_registration(row)
+    return Registration(**row)
+
+
+@router.post("/admin", response_model=Registration, status_code=status.HTTP_201_CREATED)
+def admin_create_registration(
+    body: AdminCreateRegistrationRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    require_tournament_admin(body.tournament_id, current_user)
+
+    tournament = sheets.get_tournament_by_id(body.tournament_id)
+    if not tournament:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tournament not found")
+
+    existing = sheets.get_registrations_by_user(body.user_id)
+    if any(r["tournament_id"] == body.tournament_id for r in existing):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User is already registered for this tournament")
+
+    registration_id = str(uuid.uuid4())
+    now = datetime.now(tz=timezone.utc).isoformat()
+    row = {
+        "registration_id": registration_id,
+        "tournament_id": body.tournament_id,
+        "user_id": body.user_id,
+        "status": "accepted",
         "submitted_at": now,
     }
     sheets.insert_registration(row)

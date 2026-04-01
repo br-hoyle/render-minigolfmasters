@@ -188,8 +188,8 @@ def insert_course(row: dict) -> None:
     with _cursor() as cur:
         cur.execute(
             """
-            INSERT INTO courses (course_id, name, address, description, deleted_at)
-            VALUES (%(course_id)s, %(name)s, %(address)s, %(description)s, %(deleted_at)s)
+            INSERT INTO courses (course_id, name, address, description)
+            VALUES (%(course_id)s, %(name)s, %(address)s, %(description)s)
             """,
             row,
         )
@@ -361,10 +361,10 @@ def insert_tournament(row: dict) -> None:
             """
             INSERT INTO tournaments
                 (tournament_id, name, start_date, end_date, tournament_admin_id,
-                 entry_fee, max_players, registration_deadline, deleted_at)
+                 entry_fee, max_players, registration_deadline)
             VALUES
                 (%(tournament_id)s, %(name)s, %(start_date)s, %(end_date)s, %(tournament_admin_id)s,
-                 %(entry_fee)s, %(max_players)s, %(registration_deadline)s, %(deleted_at)s)
+                 %(entry_fee)s, %(max_players)s, %(registration_deadline)s)
             """,
             row,
         )
@@ -405,8 +405,8 @@ def insert_round(row: dict) -> None:
     with _cursor() as cur:
         cur.execute(
             """
-            INSERT INTO rounds (round_id, tournament_id, course_id, round_number, label, locked)
-            VALUES (%(round_id)s, %(tournament_id)s, %(course_id)s, %(round_number)s, %(label)s, %(locked)s)
+            INSERT INTO rounds (round_id, tournament_id, course_id, round_number, label)
+            VALUES (%(round_id)s, %(tournament_id)s, %(course_id)s, %(round_number)s, %(label)s)
             """,
             row,
         )

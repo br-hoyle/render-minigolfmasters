@@ -21,7 +21,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [newT, setNewT] = useState({ name: '', start_date: '', end_date: '', entry_fee: '' })
+  const [newT, setNewT] = useState({ name: '', start_date: '', end_date: '', entry_fee: '', max_players: '', registration_deadline: '' })
   const [creating, setCreating] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -212,6 +212,8 @@ export default function Dashboard() {
             { name: 'start_date', label: 'Start Date', type: 'date' },
             { name: 'end_date', label: 'End Date', type: 'date' },
             { name: 'entry_fee', label: 'Entry Fee (optional)', type: 'number' },
+            { name: 'max_players', label: 'Max Players (optional)', type: 'number' },
+            { name: 'registration_deadline', label: 'Registration Deadline (optional)', type: 'date' },
           ].map(({ name, label, type }) => (
             <div key={name}>
               <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
@@ -220,7 +222,7 @@ export default function Dashboard() {
                 name={name}
                 value={newT[name]}
                 onChange={(e) => setNewT((f) => ({ ...f, [name]: e.target.value }))}
-                required={name !== 'entry_fee'}
+                required={!['entry_fee', 'max_players', 'registration_deadline'].includes(name)}
                 className="w-full border border-silver rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
               />
             </div>
