@@ -17,8 +17,14 @@ services:
         value: 72
       - key: ADMIN_EMAIL
         sync: false
-      - key: GMAIL_APP_PASSWORD
+      - key: GMAIL_CLIENT_ID
         sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: GMAIL_FROM_EMAIL
+        value: minigolfmasters.tournament@gmail.com
       - key: ENVIRONMENT
         value: production
       - key: FRONTEND_URL

@@ -69,3 +69,6 @@ venv.bak/
 
 ## CLAUDE CODE
 .claude/
+
+## Google OAuth credentials (never commit these)
+backend/scripts/client_secret*.json
