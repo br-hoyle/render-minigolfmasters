@@ -97,7 +97,7 @@ def submit_scores(body: BulkSubmitScoresRequest, current_user: dict = Depends(ge
             "last_modified_at": now,
             "version": 1,
         }
-        previous = sheets.upsert_score(item.registration_id, item.round_id, item.hole_id, row)
+        previous, _ = sheets.upsert_score(item.registration_id, item.round_id, item.hole_id, row)
 
         # Audit log for privileged overrides of another player's score
         if is_privileged and reg["user_id"] != current_user["user_id"] and previous:

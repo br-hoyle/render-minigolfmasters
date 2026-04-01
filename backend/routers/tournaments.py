@@ -50,11 +50,11 @@ def create_tournament(body: CreateTournamentRequest, current_user: dict = Depend
         "tournament_id": tournament_id,
         "name": body.name,
         "start_date": body.start_date,
-        "end_date": body.end_date,
+        "end_date": body.end_date or None,
         "tournament_admin_id": current_user["user_id"],
-        "entry_fee": body.entry_fee,
-        "max_players": body.max_players,
-        "registration_deadline": body.registration_deadline,
+        "entry_fee": body.entry_fee or None,
+        "max_players": body.max_players or None,
+        "registration_deadline": body.registration_deadline or None,
     }
     sheets.insert_tournament(row)
     return Tournament(**row)

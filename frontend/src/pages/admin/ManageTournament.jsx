@@ -57,6 +57,11 @@ export default function ManageTournament() {
   const [bulkConfirmAction, setBulkConfirmAction] = useState(null) // 'accept' | 'reject' | null
   const [bulkLoading, setBulkLoading] = useState(false)
 
+  // Add user dialog state
+  const [addUserOpen, setAddUserOpen] = useState(false)
+  const [addUserSelected, setAddUserSelected] = useState('')
+  const [addUserLoading, setAddUserLoading] = useState(false)
+
   // Round lock state
   const [lockingRound, setLockingRound] = useState(null)
 
@@ -167,6 +172,25 @@ export default function ManageTournament() {
       alert(err.message || 'Bulk action failed')
     } finally {
       setBulkLoading(false)
+    }
+  }
+
+  async function handleAddUser(e) {
+    e.preventDefault()
+    if (!addUserSelected) return
+    setAddUserLoading(true)
+    try {
+      const reg = await api.post('/registrations/admin', {
+        tournament_id: tournamentId,
+        user_id: addUserSelected,
+      })
+      setRegistrations((rs) => [reg, ...rs])
+      setAddUserOpen(false)
+      setAddUserSelected('')
+    } catch (err) {
+      alert(err.message || 'Failed to add user')
+    } finally {
+      setAddUserLoading(false)
     }
   }
 
@@ -770,6 +794,12 @@ export default function ManageTournament() {
           {/* Registrations tab */}
           {activeTab === 'registrations' && (
             <div className="space-y-3">
+              <button
+                onClick={() => { setAddUserOpen(true); setAddUserSelected('') }}
+                className="w-full bg-forest text-white font-semibold text-sm py-2 rounded-full hover:bg-emerald transition-colors"
+              >
+                + Add Registration
+              </button>
               <input
                 type="text"
                 placeholder="Search by name..."
@@ -916,6 +946,39 @@ export default function ManageTournament() {
           )}
         </section>
       )}
+
+      {/* Add User Dialog */}
+      <Dialog open={addUserOpen} onClose={() => setAddUserOpen(false)} title="Add User to Tournament">
+        <form onSubmit={handleAddUser} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Player</label>
+            <select
+              value={addUserSelected}
+              onChange={(e) => setAddUserSelected(e.target.value)}
+              required
+              className="w-full border border-silver rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest bg-white"
+            >
+              <option value="">Select a player…</option>
+              {users
+                .filter((u) => u.status === 'active' && !registrations.some((r) => r.user_id === u.user_id))
+                .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`))
+                .map((u) => (
+                  <option key={u.user_id} value={u.user_id}>
+                    {u.first_name} {u.last_name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <p className="text-xs text-gray-500">The user will be added as accepted and can submit scores immediately.</p>
+          <button
+            type="submit"
+            disabled={addUserLoading || !addUserSelected}
+            className="w-full bg-forest text-white font-semibold py-3 rounded-xl text-sm disabled:opacity-60 hover:bg-emerald transition-colors"
+          >
+            {addUserLoading ? 'Adding…' : 'Add to Tournament'}
+          </button>
+        </form>
+      </Dialog>
 
       {/* Bulk action confirmation Dialog */}
       <Dialog
