@@ -62,10 +62,10 @@ Built to run for free. Designed to last for years.
 |---|---|
 | Frontend | React + Vite, Tailwind CSS |
 | Backend | Python, FastAPI |
-| Database | Google Sheets (via Google Sheets API) |
+| Database | Supabase (Free Tier) |
 | Auth | JWT (bcrypt passwords, invite-token flow) |
 | Email | Python `smtplib` + Gmail App Password |
-| Hosting | Render (free tier) — Static Site + Web Service |
+| Hosting | Render (Free Tier) — Static Site + Web Service |
 
 ---
 
@@ -76,7 +76,7 @@ render-minigolfmasters/
 ├── backend/
 │   ├── main.py                  # FastAPI app entry point
 │   ├── config.py                # Environment variables
-│   ├── sheets.py                # Google Sheets abstraction (only file touching the Sheets API)
+│   ├── sheets.py                # Supabase abstraction layer (only file touching database)
 │   ├── auth.py                  # JWT + invite token logic
 │   ├── email_utils.py           # Centralized email sender (smtplib + Gmail App Password)
 │   ├── dependencies.py          # FastAPI dependencies (get_current_user, require_admin, etc.)
@@ -148,8 +148,7 @@ render-minigolfmasters/
 
 - Python 3.11+
 - Node.js 18+
-- A Google Cloud project with the Sheets API enabled
-- A Google Sheets spreadsheet set up as the database (see below)
+- A Supabase project
 - A Gmail account with an [App Password](https://support.google.com/accounts/answer/185833) configured
 
 ### 1. Clone the repo
@@ -168,8 +167,7 @@ cp .env.example .env
 Fill in `.env`:
 
 ```
-GOOGLE_SHEET_ID=               # From the Google Sheets URL
-GOOGLE_SERVICE_ACCOUNT_JSON=   # Full JSON of your service account key
+DATABASE_URL=                   # URL to Supabase database
 JWT_SECRET_KEY=                 # Generate: openssl rand -hex 32
 JWT_ALGORITHM=HS256
 JWT_EXPIRY_HOURS=72
@@ -185,9 +183,9 @@ Frontend `.env` (in `frontend/`):
 VITE_API_URL=http://localhost:8000
 ```
 
-### 3. Set up the Google Sheet
+### 3. Set up the Database
 
-Create a new Google Spreadsheet and add tabs with these exact column headers:
+Create a new databse and table and add tabs with these exact column headers:
 
 | Tab | Columns |
 |---|---|
@@ -202,10 +200,6 @@ Create a new Google Spreadsheet and add tabs with these exact column headers:
 | `registrations` | registration_id, tournament_id, user_id, status, submitted_at |
 | `score_audit_log` | audit_id, score_id, previous_strokes, new_strokes, modified_by, modified_at |
 | `handicap_requests` | request_id, user_id, requested_strokes, message, status, submitted_at, resolved_at, resolved_by |
-
-Share the spreadsheet with your service account email (found in `client_email` in the service account JSON).
-
-> For existing deployments, add the new columns to existing tabs manually: `max_players` and `registration_deadline` to `tournaments`; `locked` to `rounds`; `version` to `scores` (set existing rows to `1`). Then create the two new tabs.
 
 ### 4. Run the backend
 
@@ -268,7 +262,7 @@ The scorecard is the core player experience. Key design decisions:
 
 ## Data Design Notes
 
-**Google Sheets as a database** works well for this use case: the user base is small, writes are infrequent, and the spreadsheet doubles as a human-readable audit log organizers can inspect directly.
+**Supabase as a database** works well for this use case: the user base is small, writes are infrequent, and the spreadsheet doubles as a human-readable audit log organizers can inspect directly.
 
 **Pars and handicaps** are stored as slowly-changing dimensions (SCD). When a value changes, the old record gets an `active_to` date and a new record is inserted. The correct value for any tournament is resolved using the tournament's `start_date`.
 

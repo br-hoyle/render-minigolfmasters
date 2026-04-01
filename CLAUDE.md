@@ -8,7 +8,7 @@ This file provides full context for every Claude Code session. Read it completel
 
 **Mini Golf Masters** is an invite-only, mobile-first web app for managing mini golf tournaments among a small-ish community. It tracks scores hole-by-hole, manages tournament setup, and preserves history.
 
-The app needs to be essentially free to run. It is hosted on Render's free tier using Google Sheets as the database.
+The app needs to be essentially free to run. It is hosted on Render's free tier using Supabase Free Tier as the database.
 
 ---
 
@@ -17,7 +17,7 @@ The app needs to be essentially free to run. It is hosted on Render's free tier 
 - **Repo structure:** Single GitHub monorepo, two Render services defined in `render.yaml` at the repo root
 - **Backend:** Render Free Web Service (FastAPI/Python) — root directory `backend/`, spins down after 15 min inactivity, acceptable for this use case
 - **Frontend:** Render Static Site (React + Vite) — root directory `frontend/`, always on, free
-- **Database:** Google Sheets via Google Sheets API (service account auth)
+- **Database:** Supabase (Free Tier)
 - **Email:** Python `smtplib` via Gmail App Password (stored as env var). All email flows go through `backend/email_utils.py`. No third-party email service.
 
 ---
@@ -30,7 +30,7 @@ render-minigolfmasters/
 ├── backend/
 │   ├── main.py                  # FastAPI app entry point
 │   ├── config.py                # Environment variables, settings
-│   ├── sheets.py                # Google Sheets read/write abstraction layer (includes in-memory TTL cache)
+│   ├── sheets.py                # Supabase abstraction layer
 │   ├── auth.py                  # JWT creation, validation, invite token logic
 │   ├── email_utils.py           # Centralized email sender — send_email(to, subject, body, reply_to=None)
 │   ├── dependencies.py          # FastAPI dependencies (get_current_user, require_admin, require_tournament_admin)
@@ -137,9 +137,7 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     plan: free
     envVars:
-      - key: GOOGLE_SHEET_ID
-        sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+      - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET_KEY
         sync: false
@@ -169,11 +167,11 @@ services:
 
 ---
 
-## Database: Google Sheets
+## Database: Supabase
 
-Google Sheets is the database. There is one Google Spreadsheet with one tab per table. The `sheets.py` file is the **only** place in the codebase that knows about Google Sheets — all routers call `sheets.py` functions, never the Sheets API directly.
+Supabase is the database. The `sheets.py` file is the **only** place in the codebase that knows about Supabase — all routers call `sheets.py` functions, never the database directly.
 
-### Sheet Tabs (Tables)
+### Tables
 
 | Tab | Key Columns |
 |---|---|
@@ -433,9 +431,8 @@ Public. Fetches `GET /tournaments/{tournament_id}/recap` which computes in-memor
 Store in `.env` locally (never commit) and in Render's dashboard for production.
 
 ```
-# Google Sheets
-GOOGLE_SHEET_ID=
-GOOGLE_SERVICE_ACCOUNT_JSON=   # Full JSON of service account key
+# Supabase
+DATABASE_URL=                   # Supabase database URL
 
 # Auth
 JWT_SECRET_KEY=                 # Generate with: openssl rand -hex 32
@@ -460,7 +457,7 @@ VITE_API_URL=                   # e.g. https://minigolfmasters-api.onrender.com
 
 ## Important Conventions
 
-- `sheets.py` is the **only** file that imports or calls the Google Sheets API. All other files call helper functions from `sheets.py`.
+- `sheets.py` is the **only** file that imports or calls the Supabase connection. All other files call helper functions from `sheets.py`.
 - `email_utils.py` is the **only** file that sends email. All email flows call `email_utils.send_email()`. It returns `bool` and never raises — email failures are non-blocking.
 - One Pydantic model file per domain entity in `models/`, mirroring the sheet tabs.
 - One router file per domain in `routers/`.
