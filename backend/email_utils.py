@@ -5,10 +5,13 @@ This is the only place that uses smtplib directly.
 All routers call send_email() from here.
 """
 
+import logging
 import smtplib
 from email.mime.text import MIMEText
 
 from config import ADMIN_EMAIL, GMAIL_APP_PASSWORD
+
+logger = logging.getLogger(__name__)
 
 
 def send_email(to_email: str, subject: str, body: str, reply_to: str | None = None) -> bool:
@@ -26,5 +29,6 @@ def send_email(to_email: str, subject: str, body: str, reply_to: str | None = No
             smtp.login(ADMIN_EMAIL, GMAIL_APP_PASSWORD)
             smtp.send_message(msg)
         return True
-    except Exception:
+    except Exception as e:
+        logger.error("Email send failed to=%s subject=%r: %s", to_email, subject, e)
         return False
