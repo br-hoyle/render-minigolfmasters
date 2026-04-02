@@ -533,7 +533,7 @@ export default function ManageTournament() {
       {!isNew && (
         <Link
           to={`/leaderboard/${tournamentId}`}
-          className="block w-full text-center bg-white border border-silver text-forest font-semibold py-2.5 rounded-xl hover:bg-cream transition-colors text-sm"
+          className="block w-full text-center bg-forest border border-forest text-white font-semibold py-2.5 rounded-xl hover:bg-[#079E78] transition-colors text-sm"
         >
           View Leaderboard
         </Link>
