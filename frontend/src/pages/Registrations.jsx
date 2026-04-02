@@ -55,7 +55,7 @@ export default function Registrations() {
         api.get('/rounds/'),
       ])
       setTournaments(ts)
-      setMyRegs(regs)
+      setMyRegs(regs.filter((r) => r.user_id === user.user_id))
       setRounds(rs)
       setLoading(false)
     }
