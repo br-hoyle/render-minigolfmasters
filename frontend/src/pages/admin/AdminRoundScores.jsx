@@ -19,6 +19,8 @@ export default function AdminRoundScores() {
   const [editingCell, setEditingCell] = useState(null) // { registrationId, holeId }
   const [editingValue, setEditingValue] = useState('')
   const [saveErrors, setSaveErrors] = useState({}) // key = `regId-holeId`
+  const [sortField, setSortField] = useState(null) // 'name' | 'total'
+  const [sortDir, setSortDir] = useState('asc')
 
   const pendingRef = useRef({}) // key = `regId-holeId` -> { registration_id, hole_id, strokes }
   const timerRef = useRef(null)
@@ -42,9 +44,14 @@ export default function AdminRoundScores() {
         const sortedHoles = courseHoles.sort((a, b) => a.hole_number - b.hole_number)
         setHoles(sortedHoles)
 
-        const activePars = allPars.filter(
-          (p) => p.active_from <= t.start_date && p.active_to >= t.start_date
+        let activePars = allPars.filter(
+          (p) =>
+            p.active_from.slice(0, 10) <= t.start_date.slice(0, 10) &&
+            p.active_to.slice(0, 10) >= t.start_date.slice(0, 10)
         )
+        if (activePars.length === 0) {
+          activePars = allPars.filter((p) => String(p.active_to).slice(0, 10) === '9999-12-31')
+        }
         const pm = Object.fromEntries(activePars.map((p) => [p.hole_id, Number(p.par_strokes)]))
         setParMap(pm)
 
@@ -146,9 +153,42 @@ export default function AdminRoundScores() {
     if (e.key === 'Escape') setEditingCell(null)
   }
 
+  function handleSort(field) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  function sortIndicator(field) {
+    if (sortField !== field) return ' ↕'
+    return sortDir === 'asc' ? ' ↑' : ' ↓'
+  }
+
+  function getTotal(player) {
+    return holes.reduce((sum, h) => sum + (player.scoreMap[h.hole_id] || 0), 0)
+  }
+
+  function getSortedPlayers() {
+    if (!sortField) return players
+    return [...players].sort((a, b) => {
+      let cmp = 0
+      if (sortField === 'name') {
+        cmp = a.name.localeCompare(b.name)
+      } else if (sortField === 'total') {
+        cmp = getTotal(a) - getTotal(b)
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }
+
   if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
   if (error) return <div className="p-8 text-center text-[#CC0131]">{error}</div>
   if (!tournament || !round) return null
+
+  const sortedPlayers = getSortedPlayers()
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -178,18 +218,26 @@ export default function AdminRoundScores() {
           <table className="text-sm min-w-max w-full">
             <thead>
               <tr className="bg-forest text-white">
-                <th className="text-left px-4 py-3 font-semibold sticky left-0 bg-forest min-w-[140px]">
-                  Player
+                <th
+                  className="text-left px-4 py-3 font-semibold sticky left-0 bg-forest min-w-[140px] cursor-pointer select-none hover:bg-forest/90"
+                  onClick={() => handleSort('name')}
+                >
+                  Player{sortIndicator('name')}
                 </th>
                 {holes.map((h) => (
                   <th key={h.hole_id} className="text-center px-3 py-3 font-semibold min-w-[3.5rem]">
                     {h.hole_number}
                   </th>
                 ))}
-                <th className="text-center px-3 py-3 font-semibold">Total</th>
+                <th
+                  className="text-center px-3 py-3 font-semibold cursor-pointer select-none hover:bg-forest/90"
+                  onClick={() => handleSort('total')}
+                >
+                  Total{sortIndicator('total')}
+                </th>
               </tr>
               <tr className="bg-emerald/10">
-                <td className="text-left px-4 py-2 font-semibold text-gray-600 sticky left-0 bg-emerald/10">
+                <td className="text-left px-4 py-2 font-semibold text-gray-600 sticky left-0 bg-[#e8f9f4]">
                   Par
                 </td>
                 {holes.map((h) => (
@@ -203,11 +251,8 @@ export default function AdminRoundScores() {
               </tr>
             </thead>
             <tbody>
-              {players.map((player) => {
-                const total = holes.reduce(
-                  (sum, h) => sum + (player.scoreMap[h.hole_id] || 0),
-                  0
-                )
+              {sortedPlayers.map((player) => {
+                const total = getTotal(player)
                 return (
                   <tr
                     key={player.registration_id}

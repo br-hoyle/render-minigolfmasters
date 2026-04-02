@@ -73,6 +73,9 @@ export default function Layout() {
                   <Link to="/leaderboards" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
                     Leaderboards
                   </Link>
+                  <Link to="/courses" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
+                    Courses
+                  </Link>
                   <Link to="/contact" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
                     Contact Us
                   </Link>

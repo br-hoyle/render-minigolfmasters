@@ -30,6 +30,7 @@ export default function Scorecard() {
   const [allRounds, setAllRounds] = useState([])
   const [tournamentId, setTournamentId] = useState(null)
   const [tournamentName, setTournamentName] = useState('')
+  const [courseId, setCourseId] = useState(null)
   const [holes, setHoles] = useState([])
   const [pars, setPars] = useState({})           // hole_id -> par_strokes
   const [scores, setScores] = useState({})       // hole_id -> strokes
@@ -79,6 +80,8 @@ export default function Scorecard() {
 
       // Check if round is locked
       setRoundLocked(round.locked === 'true')
+
+      setCourseId(round.course_id)
 
       const [courseHoles, parsForDate] = await Promise.all([
         api.get(`/courses/${round.course_id}/holes`),
@@ -522,7 +525,17 @@ export default function Scorecard() {
       {/* --- GRID MODE --- */}
       {viewMode === 'grid' && (
         <div className="px-6 mt-4">
-          <p className="text-lg font-display font-black text-white mb-3">{roundLabel}</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-lg font-display font-black text-white">{roundLabel}</p>
+            {courseId && (
+              <Link
+                to={`/courses/${courseId}`}
+                className="text-xs font-semibold text-white/60 border border-white/20 rounded-full px-3 py-1 hover:text-white hover:border-white/50 transition-colors"
+              >
+                Course Stats →
+              </Link>
+            )}
+          </div>
           <ScoreGrid holes={holes} pars={pars} scores={scores} onScoreChange={handleGridScoreChange} />
           {saveError && (
             <p className="mt-3 bg-[#CC0131] text-white text-sm font-semibold py-2 px-3 rounded-lg text-center">
@@ -548,6 +561,14 @@ export default function Scorecard() {
               {roundLabel} | Hole: {currentHole.hole_number}
             </p>
             <p className="text-base font-semibold text-white/70 mt-1">Par: {par ?? 'Not Set'}</p>
+            {courseId && (
+              <Link
+                to={`/courses/${courseId}?hole=${currentHole.hole_number}`}
+                className="inline-block mt-2 text-xs font-semibold text-white/60 border border-white/20 rounded-full px-3 py-1 hover:text-white hover:border-white/50 transition-colors"
+              >
+                Hole {currentHole.hole_number} Stats →
+              </Link>
+            )}
           </div>
 
           {/* Save error */}
@@ -623,17 +644,25 @@ export default function Scorecard() {
             </button>
           </div>
 
-          {/* See all scores link */}
-          {tournamentId && activeRoundId && (
-            <div className="text-center mt-8">
+          {/* Footer links */}
+          <div className="flex items-center justify-center gap-6 mt-8">
+            {tournamentId && activeRoundId && (
               <Link
                 to={`/leaderboard/${tournamentId}/round/${activeRoundId}`}
-                className="text-white underline underline-offset-4 text-sm"
+                className="text-white/60 underline underline-offset-4 text-sm hover:text-white"
               >
                 See all scores
               </Link>
-            </div>
-          )}
+            )}
+            {courseId && (
+              <Link
+                to={`/courses/${courseId}`}
+                className="text-white/60 underline underline-offset-4 text-sm hover:text-white"
+              >
+                Course analytics
+              </Link>
+            )}
+          </div>
         </>
       )}
     </div>

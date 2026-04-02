@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class Handicap(BaseModel):
@@ -9,3 +9,10 @@ class Handicap(BaseModel):
     active_to: str
 
     model_config = {"extra": "ignore"}
+
+    @field_validator("strokes", mode="before")
+    @classmethod
+    def coerce_strokes(cls, v):
+        if v == "" or v is None:
+            return 0
+        return int(v)

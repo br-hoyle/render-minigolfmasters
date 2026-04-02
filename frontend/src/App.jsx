@@ -17,6 +17,8 @@ import History from './pages/History'
 import Profile from './pages/Profile'
 import ResetPassword from './pages/ResetPassword'
 import TournamentRecap from './pages/TournamentRecap'
+import Courses from './pages/Courses'
+import CourseDetail from './pages/CourseDetail'
 
 import Dashboard from './pages/admin/Dashboard'
 import ManageTournament from './pages/admin/ManageTournament'
@@ -43,6 +45,8 @@ export default function App() {
             <Route path="/leaderboard/:tournamentId/round/:roundId" element={<RoundScores />} />
             <Route path="/tournaments/:tournamentId/recap" element={<TournamentRecap />} />
             <Route path="/history" element={<History />} />
+            <Route path="/courses" element={<Courses />} />
+            <Route path="/courses/:courseId" element={<CourseDetail />} />
 
             {/* Player */}
             <Route element={<ProtectedRoute />}>

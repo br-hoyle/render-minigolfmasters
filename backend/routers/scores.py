@@ -78,7 +78,7 @@ def submit_scores(body: BulkSubmitScoresRequest, current_user: dict = Depends(ge
                         status_code=status.HTTP_409_CONFLICT,
                         detail={
                             "message": "Score was modified by another user",
-                            "current_strokes": int(existing["strokes"]),
+                            "current_strokes": int(existing.get("strokes") or 0),
                             "current_version": current_version,
                             "modified_by": existing.get("last_modified_by", ""),
                         },

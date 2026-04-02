@@ -46,7 +46,17 @@ export default function Leaderboard() {
             api.get(`/pars/`),
             api.get('/handicaps/'),
           ])
-        setData({ tournament, registrations, scores, users, rounds, pars, handicaps })
+
+        // Fetch holes for each unique course used in this tournament's rounds
+        const uniqueCourseIds = [...new Set(rounds.map((r) => r.course_id).filter(Boolean))]
+        const holesArrays = await Promise.all(
+          uniqueCourseIds.map((id) => api.get(`/courses/${id}/holes`))
+        )
+        const holeByCourseId = Object.fromEntries(
+          uniqueCourseIds.map((id, i) => [id, holesArrays[i]])
+        )
+
+        setData({ tournament, registrations, scores, users, rounds, pars, handicaps, holeByCourseId })
       } catch (err) {
         setError(err.message)
       } finally {
@@ -81,7 +91,7 @@ export default function Leaderboard() {
   if (error) return <div className="p-8 text-center text-[#CC0131]">{error}</div>
   if (!data) return null
 
-  const { tournament, registrations, scores, users, rounds, pars, handicaps } = data
+  const { tournament, registrations, scores, users, rounds, pars, handicaps, holeByCourseId } = data
 
   const sortedRounds = [...rounds].sort((a, b) => a.round_number - b.round_number)
 
@@ -99,17 +109,10 @@ export default function Leaderboard() {
     tournament.status === 'active' &&
     (myReg.status === 'accepted' || user?.role === 'admin')
 
-  // Filter scores by round selection (cumulative through selected round)
+  // Filter scores by round selection — single round only (not cumulative)
   const filteredScores = (() => {
     if (selectedRoundFilter === 'overall') return scores
-    const selectedRound = rounds.find((r) => r.round_id === selectedRoundFilter)
-    if (!selectedRound) return scores
-    const includedRoundIds = new Set(
-      rounds
-        .filter((r) => r.round_number <= selectedRound.round_number)
-        .map((r) => r.round_id)
-    )
-    return scores.filter((s) => includedRoundIds.has(s.round_id))
+    return scores.filter((s) => s.round_id === selectedRoundFilter)
   })()
 
   // Build leaderboard rows
@@ -124,15 +127,27 @@ export default function Leaderboard() {
     activePars = pars.filter((p) => String(p.active_to).slice(0, 10) === '9999-12-31')
   }
 
-  // For the selected round filter, compute total par only for rounds included
+  // Helper: sum pars for a given array of holes
+  function parForHoles(holes) {
+    return holes.reduce((sum, h) => {
+      const p = activePars.find((ap) => ap.hole_id === h.hole_id)
+      return sum + (Number(p?.par_strokes) || 0)
+    }, 0)
+  }
+
+  // Compute total par for the current filter
   const totalPar = (() => {
     if (selectedRoundFilter === 'overall') {
-      return activePars.reduce((sum, p) => sum + (Number(p.par_strokes) || 0), 0)
+      // Sum par for each round separately (same course can appear in multiple rounds)
+      return rounds.reduce((sum, r) => {
+        const holes = holeByCourseId[r.course_id] || []
+        return sum + parForHoles(holes)
+      }, 0)
     }
     const selectedRound = rounds.find((r) => r.round_id === selectedRoundFilter)
-    if (!selectedRound) return activePars.reduce((sum, p) => sum + (Number(p.par_strokes) || 0), 0)
-    // We don't have holes-per-round easily here, so use all pars (approximate)
-    return activePars.reduce((sum, p) => sum + (Number(p.par_strokes) || 0), 0)
+    if (!selectedRound) return 0
+    const holes = holeByCourseId[selectedRound.course_id] || []
+    return parForHoles(holes)
   })()
 
   const rows = accepted.map((reg) => {
@@ -181,6 +196,15 @@ export default function Leaderboard() {
     if (vsParValue === 0) return 'E'
     if (vsParValue > 0) return `+${vsParValue}`
     return vsParValue
+  }
+
+  function placeDisplay(i, row) {
+    if (row.forfeit) return ''
+    if (row.gross === 0) return '—'
+    if (i === 0) return '🥇'
+    if (i === 1) return '🥈'
+    if (i === 2) return '🥉'
+    return i + 1
   }
 
   // Build drill-down data for a player
@@ -320,7 +344,7 @@ export default function Leaderboard() {
                           }`}
                         >
                           <td className="px-4 py-3 text-gray-400 text-xs w-6">
-                            {row.forfeit ? '' : row.gross === 0 ? '—' : i + 1}
+                            {placeDisplay(i, row)}
                           </td>
                           <td className="px-2 py-3 font-bold text-gray-900">
                             <button
