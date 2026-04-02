@@ -1,3 +1,5 @@
+import math
+import statistics
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -69,7 +71,7 @@ def create_hole(body: CreateHoleRequest, _: dict = Depends(require_admin)):
     row = {
         "hole_id": hole_id,
         "course_id": body.course_id,
-        "hole_number": body.hole_number,
+        "hole_number": int(body.hole_number),
     }
     sheets.insert_hole(row)
     return Hole(**row)
@@ -81,8 +83,8 @@ def update_hole(hole_id: str, body: UpdateHoleRequest, _: dict = Depends(require
     h = next((h for h in holes if h["hole_id"] == hole_id), None)
     if not h:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hole not found")
-    sheets.update_hole(hole_id, {"hole_number": body.hole_number})
-    h["hole_number"] = body.hole_number
+    sheets.update_hole(hole_id, {"hole_number": int(body.hole_number)})
+    h["hole_number"] = int(body.hole_number)
     return Hole(**h)
 
 
@@ -146,4 +148,282 @@ def get_course_stats(course_id: str):
             "avg_vs_par": avg_vs_par,
             "score_count": len(hole_scores),
         })
+    return result
+
+
+@router.get("/{course_id}/analytics")
+def get_course_analytics(course_id: str):
+    """
+    Return full course analytics: course summary cards + per-hole metrics.
+    Public endpoint — no auth required.
+    """
+    holes = sheets.get_holes_by_course(course_id)
+    if not holes:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found or has no holes")
+
+    holes_sorted = sorted(holes, key=lambda h: int(h["hole_number"]))
+    hole_ids = {h["hole_id"] for h in holes}
+
+    # Use always-active pars as baseline (consistent with get_course_stats)
+    all_pars = sheets.get_all_pars()
+    active_pars = {
+        p["hole_id"]: int(p["par_strokes"])
+        for p in all_pars
+        if str(p.get("active_to", ""))[:10] == "9999-12-31"
+    }
+
+    course_par = sum(active_pars.get(h["hole_id"], 0) for h in holes)
+
+    # Get all rounds that use this course
+    all_rounds = sheets.get_all_rounds()
+    course_round_ids = {r["round_id"] for r in all_rounds if r.get("course_id") == course_id}
+
+    if not course_round_ids:
+        # No rounds played on this course yet
+        return _empty_analytics(holes_sorted, active_pars, course_par)
+
+    # Get all scores for those rounds
+    all_scores = sheets.get_all_scores()
+    course_scores = [
+        s for s in all_scores
+        if s.get("round_id") in course_round_ids and s.get("hole_id") in hole_ids and s.get("strokes")
+    ]
+
+    if not course_scores:
+        return _empty_analytics(holes_sorted, active_pars, course_par)
+
+    # Build per-(registration_id, round_id) round totals
+    round_totals: dict[tuple, int] = {}
+    for s in course_scores:
+        key = (s["registration_id"], s["round_id"])
+        round_totals[key] = round_totals.get(key, 0) + int(s["strokes"])
+
+    round_total_values = list(round_totals.values())
+    sample_size = len(round_total_values)
+    total_hole_attempts = len(course_scores)
+
+    # Course summary metrics
+    avg_score = round(sum(round_total_values) / sample_size, 1) if sample_size else None
+    vs_par = round(avg_score - course_par, 1) if avg_score is not None else None
+    volatility = round(statistics.stdev(round_total_values), 1) if sample_size >= 2 else None
+
+    ace_count = sum(1 for s in course_scores if int(s["strokes"]) == 1)
+    ace_rate = round(ace_count / total_hole_attempts, 4) if total_hole_attempts else None
+
+    # Adjusted difficulty: compare this course's score vs player's baseline on other rounds
+    adjusted_difficulty = _compute_adjusted_difficulty(
+        course_round_ids=course_round_ids,
+        round_totals=round_totals,
+        all_scores=all_scores,
+        all_rounds=all_rounds,
+        hole_ids=hole_ids,
+    )
+
+    # Per-hole metrics
+    hole_analytics = _compute_hole_analytics(
+        holes_sorted=holes_sorted,
+        active_pars=active_pars,
+        course_scores=course_scores,
+        round_totals=round_totals,
+    )
+
+    return {
+        "course_summary": {
+            "course_par": course_par,
+            "avg_score": avg_score,
+            "vs_par": vs_par,
+            "adjusted_difficulty": adjusted_difficulty,
+            "ace_rate": ace_rate,
+            "volatility": volatility,
+            "sample_size": sample_size,
+            "total_hole_attempts": total_hole_attempts,
+        },
+        "holes": hole_analytics,
+    }
+
+
+def _empty_analytics(holes_sorted, active_pars, course_par):
+    """Return analytics structure with null metrics when no data exists."""
+    return {
+        "course_summary": {
+            "course_par": course_par,
+            "avg_score": None,
+            "vs_par": None,
+            "adjusted_difficulty": None,
+            "ace_rate": None,
+            "volatility": None,
+            "sample_size": 0,
+            "total_hole_attempts": 0,
+        },
+        "holes": [
+            {
+                "hole_id": h["hole_id"],
+                "hole_number": int(h["hole_number"]),
+                "par": active_pars.get(h["hole_id"]),
+                "avg_score": None,
+                "vs_par": None,
+                "difficulty_rank": None,
+                "ace_pct": None,
+                "bogey_plus_pct": None,
+                "std_dev": None,
+                "separation_score": None,
+            }
+            for h in holes_sorted
+        ],
+    }
+
+
+def _compute_adjusted_difficulty(
+    course_round_ids: set,
+    round_totals: dict,
+    all_scores: list,
+    all_rounds: list,
+    hole_ids: set,
+) -> float | None:
+    """
+    For each registration that played this course, compute their avg score on
+    all OTHER rounds (at least 3), compare to their score on this course, and
+    average the deltas.
+    """
+    # Map registration_id → list of non-course round scores
+    other_round_ids = {r["round_id"] for r in all_rounds if r["round_id"] not in course_round_ids}
+
+    # Build per-registration totals on other rounds
+    other_totals: dict[str, list[int]] = {}
+    for s in all_scores:
+        if s.get("round_id") in other_round_ids and s.get("strokes"):
+            reg_id = s["registration_id"]
+            # Only sum scores from holes — group by round
+            pass
+
+    # More accurate: build (reg_id, round_id) → total for non-course rounds
+    other_round_totals: dict[tuple, int] = {}
+    for s in all_scores:
+        if s.get("round_id") in other_round_ids and s.get("strokes"):
+            key = (s["registration_id"], s["round_id"])
+            other_round_totals[key] = other_round_totals.get(key, 0) + int(s["strokes"])
+
+    # Group by registration_id
+    reg_other_rounds: dict[str, list[int]] = {}
+    for (reg_id, _round_id), total in other_round_totals.items():
+        reg_other_rounds.setdefault(reg_id, []).append(total)
+
+    # Build course score per registration (sum across all course rounds for that registration)
+    reg_course_totals: dict[str, list[int]] = {}
+    for (reg_id, round_id), total in round_totals.items():
+        reg_course_totals.setdefault(reg_id, []).append(total)
+
+    deltas = []
+    for reg_id, course_round_scores in reg_course_totals.items():
+        other_scores = reg_other_rounds.get(reg_id, [])
+        if len(other_scores) < 3:
+            continue
+        player_baseline = sum(other_scores) / len(other_scores)
+        course_avg = sum(course_round_scores) / len(course_round_scores)
+        deltas.append(course_avg - player_baseline)
+
+    if len(deltas) < 3:
+        return None
+    return round(sum(deltas) / len(deltas), 1)
+
+
+def _compute_hole_analytics(
+    holes_sorted: list,
+    active_pars: dict,
+    course_scores: list,
+    round_totals: dict,
+) -> list:
+    """Compute per-hole analytics metrics."""
+    # Group scores by hole_id
+    scores_by_hole: dict[str, list[int]] = {}
+    for s in course_scores:
+        hid = s["hole_id"]
+        scores_by_hole.setdefault(hid, []).append(int(s["strokes"]))
+
+    # For separation score: split rounds into top/bottom quartile by total score
+    round_total_values = sorted(round_totals.values())
+    n = len(round_total_values)
+    quartile_size = max(1, n // 4)
+    top_keys = {k for k, v in round_totals.items() if v <= round_total_values[quartile_size - 1]}
+    bottom_keys = {k for k, v in round_totals.items() if v >= round_total_values[n - quartile_size]}
+
+    # Scores by hole for top/bottom quartile rounds
+    top_scores_by_hole: dict[str, list[int]] = {}
+    bottom_scores_by_hole: dict[str, list[int]] = {}
+    for s in course_scores:
+        key = (s["registration_id"], s["round_id"])
+        hid = s["hole_id"]
+        strokes = int(s["strokes"])
+        if key in top_keys:
+            top_scores_by_hole.setdefault(hid, []).append(strokes)
+        if key in bottom_keys:
+            bottom_scores_by_hole.setdefault(hid, []).append(strokes)
+
+    # Compute vs_par for difficulty ranking
+    hole_vs_par = {}
+    for h in holes_sorted:
+        hid = h["hole_id"]
+        par = active_pars.get(hid)
+        hole_scores = scores_by_hole.get(hid, [])
+        if hole_scores and par is not None:
+            avg = sum(hole_scores) / len(hole_scores)
+            hole_vs_par[hid] = avg - par
+        else:
+            hole_vs_par[hid] = None
+
+    # Dense rank by vs_par descending (1 = hardest)
+    ranked_vs_par = sorted(
+        [(hid, vp) for hid, vp in hole_vs_par.items() if vp is not None],
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    rank_map = {}
+    current_rank = 1
+    prev_vp = None
+    for i, (hid, vp) in enumerate(ranked_vs_par):
+        if prev_vp is None or vp != prev_vp:
+            current_rank = i + 1
+        rank_map[hid] = current_rank
+        prev_vp = vp
+
+    result = []
+    for h in holes_sorted:
+        hid = h["hole_id"]
+        par = active_pars.get(hid)
+        hole_scores = scores_by_hole.get(hid, [])
+        attempts = len(hole_scores)
+
+        avg_score = round(sum(hole_scores) / attempts, 2) if attempts else None
+        vp = hole_vs_par.get(hid)
+        vs_par_display = round(vp, 2) if vp is not None else None
+        difficulty_rank = rank_map.get(hid)
+
+        ace_pct = round(sum(1 for s in hole_scores if s == 1) / attempts, 4) if attempts else None
+        bogey_plus_pct = round(sum(1 for s in hole_scores if par is not None and s > par) / attempts, 4) if attempts and par is not None else None
+        std_dev = round(statistics.stdev(hole_scores), 2) if attempts >= 2 else None
+
+        # Separation score
+        separation_score = None
+        if n >= 4:
+            top_hole = top_scores_by_hole.get(hid, [])
+            bottom_hole = bottom_scores_by_hole.get(hid, [])
+            if top_hole and bottom_hole:
+                separation_score = round(
+                    sum(bottom_hole) / len(bottom_hole) - sum(top_hole) / len(top_hole),
+                    2,
+                )
+
+        result.append({
+            "hole_id": hid,
+            "hole_number": int(h["hole_number"]),
+            "par": par,
+            "avg_score": avg_score,
+            "vs_par": vs_par_display,
+            "difficulty_rank": difficulty_rank,
+            "ace_pct": ace_pct,
+            "bogey_plus_pct": bogey_plus_pct,
+            "std_dev": std_dev,
+            "separation_score": separation_score,
+        })
+
     return result

@@ -42,7 +42,8 @@ render-minigolfmasters/
 │   │   │                        # POST /tournaments/{id}/announce, GET /tournaments/admin/stats
 │   │   ├── registrations.py     # GET/POST /registrations, PATCH /registrations/{id}, PATCH /registrations/bulk
 │   │   ├── rounds.py            # GET/POST /rounds, PATCH /rounds/{id}/lock
-│   │   ├── courses.py           # GET/POST /courses, holes per course, GET /courses/{id}/stats
+│   │   ├── courses.py           # GET/POST /courses, holes per course, GET /courses/{id}/stats,
+│   │   │                        # GET /courses/{id}/analytics (public — full analytics payload)
 │   │   ├── pars.py              # GET/POST /pars (resolved by tournament start_date), POST /pars/bulk
 │   │   ├── handicaps.py         # GET/POST /handicaps (resolved by tournament start_date)
 │   │   ├── handicap_requests.py # POST /handicap-requests/, GET /handicap-requests/me, GET /handicap-requests/,
@@ -99,6 +100,9 @@ render-minigolfmasters/
 │   │   │   ├── AcceptInvite.jsx
 │   │   │   ├── ResetPassword.jsx
 │   │   │   ├── Tournaments.jsx
+│   │   │   ├── Courses.jsx          # Public course list — links to CourseDetail
+│   │   │   ├── CourseDetail.jsx     # Public course detail — name/address/description then analytics inline;
+│   │   │   │                        # ?hole=N auto-opens and scrolls to that hole's accordion row
 │   │   │   ├── Leaderboards.jsx
 │   │   │   ├── Leaderboard.jsx      # Round-by-round tabs, player drill-down, recap link
 │   │   │   ├── RoundScores.jsx      # Hole-by-hole table with avg difficulty row
@@ -246,6 +250,7 @@ Returns `True` on success, `False` on failure (non-blocking). Email flows:
 | View home / marketing page | ✅ | ✅ | ✅ | ✅ |
 | View all tournaments / leaderboards / history | ✅ | ✅ | ✅ | ✅ |
 | View tournament recap page | ✅ | ✅ | ✅ | ✅ |
+| View courses list and course analytics | ✅ | ✅ | ✅ | ✅ |
 | Submit contact form | ✅ | ✅ | ✅ | ✅ |
 | Register for a tournament | ❌ | ✅ | ✅ | ✅ |
 | Submit / edit own scores (active, unlocked round) | ❌ | ✅ | ✅ | ✅ |
@@ -293,7 +298,7 @@ Players are on their phones on a golf course, in sunlight, potentially with poor
 
 ## Leaderboard
 
-- **Overall standings** + **round-by-round tabs** (cumulative through selected round number)
+- **Overall standings** + **round-by-round tabs** (single round view — selecting a round shows only that round's scores)
 - **Player drill-down** — tap any player name to expand a per-round hole-by-hole breakdown with par-relative badges. Holes are fetched from `GET /courses/{course_id}/holes` and cached per course_id.
 - **Handicap toggle** — switch between net and gross scores
 - **"View Recap →"** link appears for completed tournaments
@@ -328,6 +333,8 @@ Public. Fetches `GET /tournaments/{tournament_id}/recap` which computes in-memor
 | `/leaderboard/:tournamentId/round/:roundId` | Public | RoundScores |
 | `/tournaments/:tournamentId/recap` | Public | TournamentRecap |
 | `/history` | Public | History |
+| `/courses` | Public | Courses |
+| `/courses/:courseId` | Public | CourseDetail (description + analytics inline, `?hole=N` highlights a hole) |
 | `/registrations` | Player | Registrations |
 | `/profile` | Player | Profile |
 | `/scorecard/:registrationId` | Player | Scorecard (round select) |
@@ -358,6 +365,7 @@ Public. Fetches `GET /tournaments/{tournament_id}/recap` which computes in-memor
 - Create / edit / delete courses and holes.
 - **Set All Pars** button per course: opens a dialog with par inputs for all holes → `POST /pars/bulk`.
 - When expanding a course, course difficulty stats are fetched (`GET /courses/{id}/stats`) and avg strokes shown as a color-coded badge next to each hole.
+- Each course card has a **"↗ Public" link** that navigates to `/courses/{course_id}?tab=analytics`.
 
 ### ManageUsers (`/admin/users`)
 - Invite users, change roles, deactivate/reactivate.
@@ -381,6 +389,8 @@ Public. Fetches `GET /tournaments/{tournament_id}/recap` which computes in-memor
 | Round Scores | `Round Scores \| Mini Golf Masters` |
 | Tournament Recap | `{Name} Recap \| Mini Golf Masters` |
 | History | `History \| Mini Golf Masters` |
+| Courses | `Courses \| Mini Golf Masters` |
+| Course Detail / Analytics | `{Course Name} \| Mini Golf Masters` |
 | Contact | `Contact \| Mini Golf Masters` |
 | Login | `Login \| Mini Golf Masters` |
 | Accept Invite | `Create Account \| Mini Golf Masters` |
