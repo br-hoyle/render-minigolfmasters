@@ -321,8 +321,8 @@ export default function Leaderboard() {
                           isExpanded ? 'bg-gray-50' : ''
                         }`}
                       >
-                        <td className="px-4 py-3 text-gray-400 text-xs w-6">
-                          {row.forfeit ? '' : row.gross === 0 ? '—' : pos}
+                        <td className="px-4 py-3 text-xs w-6 text-center">
+                          {row.forfeit ? '' : row.gross === 0 ? '—' : pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : <span className="text-gray-400">{pos}</span>}
                         </td>
                           <td className="px-2 py-3 font-bold text-gray-900">
                             <button
