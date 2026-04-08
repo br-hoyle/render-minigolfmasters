@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../../api/client'
 import Dialog from '../../components/Dialog'
+import LoadingOverlay from '../../components/LoadingOverlay'
 
 const ROLE_FILTER_OPTIONS = ['All', 'Player', 'Admin']
 const STATUS_FILTER_OPTIONS = ['All', 'Invited', 'Active', 'Deactivated']
@@ -112,6 +113,71 @@ function fmtSubmitted(isoStr) {
   return new Date(isoStr).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   })
+}
+
+// ── Email inline edit on user card ───────────────────────────────────────────
+function EmailInline({ userId, currentEmail, isInvitePending, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(currentEmail || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  function startEdit() {
+    setValue(currentEmail || '')
+    setError(null)
+    setEditing(true)
+  }
+
+  async function handleSave() {
+    if (!value || !value.includes('@')) { setError('Valid email required'); return }
+    setSaving(true)
+    try {
+      await api.patch(`/users/${userId}`, { email: value })
+      onSaved(userId, value)
+      setEditing(false)
+    } catch (err) {
+      setError(err.message || 'Error saving email')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-sm text-gray-600">{currentEmail}</span>
+        <button onClick={startEdit} className="text-xs text-forest hover:underline font-semibold">
+          Edit
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex items-center gap-1.5 flex-wrap">
+      <input
+        type="email"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        autoFocus
+        className="border border-silver rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-forest"
+      />
+      {isInvitePending && (
+        <span className="text-xs text-amber-600">New invite will be sent</span>
+      )}
+      {error && <span className="text-xs text-[#CC0131]">{error}</span>}
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="text-xs font-bold text-forest hover:underline disabled:opacity-60"
+      >
+        {saving ? '…' : 'Save'}
+      </button>
+      <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:underline">
+        Cancel
+      </button>
+    </span>
+  )
 }
 
 // ── Handicap inline edit on user card ────────────────────────────────────────
@@ -328,6 +394,10 @@ export default function ManageUsers() {
     }
   }
 
+  function handleEmailSaved(userId, newEmail) {
+    setUsers((us) => us.map((u) => (u.user_id === userId ? { ...u, email: newEmail } : u)))
+  }
+
   function handleHandicapSaved(userId, newStrokes) {
     setHandicaps((prev) => {
       const closed = prev.map((h) =>
@@ -359,7 +429,7 @@ export default function ManageUsers() {
     setInviteError(null)
   }
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
@@ -522,11 +592,16 @@ export default function ManageUsers() {
                     )}
                   </div>
 
-                  {/* Row 3: email | phone */}
-                  <p className="text-sm text-gray-600">
-                    {u.email}
-                    {u.phone && ` | ${u.phone}`}
-                  </p>
+                  {/* Row 3: email (editable) | phone */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <EmailInline
+                      userId={u.user_id}
+                      currentEmail={u.email}
+                      isInvitePending={u.invite_pending}
+                      onSaved={handleEmailSaved}
+                    />
+                    {u.phone && <span className="text-sm text-gray-400">| {u.phone}</span>}
+                  </div>
 
                   {/* Row 4: handicap */}
                   <HandicapInline

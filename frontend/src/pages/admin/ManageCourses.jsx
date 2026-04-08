@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api/client'
 import Dialog from '../../components/Dialog'
+import LoadingOverlay from '../../components/LoadingOverlay'
 
 export default function ManageCourses() {
   useEffect(() => {
@@ -32,6 +33,11 @@ export default function ManageCourses() {
 
   // Course difficulty stats
   const [courseStats, setCourseStats] = useState({}) // course_id -> { hole_id -> stat }
+
+  // Hole analytics tab state
+  const [analyticsTab, setAnalyticsTab] = useState('by_hole') // 'by_hole' | 'compare'
+  const [analyticsSortCol, setAnalyticsSortCol] = useState('hole_number')
+  const [analyticsSortDir, setAnalyticsSortDir] = useState('asc')
 
   // Bulk par dialog state
   const [bulkParCourseId, setBulkParCourseId] = useState(null)
@@ -202,7 +208,7 @@ export default function ManageCourses() {
     }
   }
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
 
   const filteredCourses = courses.filter((c) => {
     if (!search) return true
@@ -401,20 +407,6 @@ export default function ManageCourses() {
                                 <span className="text-xs text-gray-600">
                                   Par: <strong>{currentPar(hole.hole_id) ?? '—'}</strong>
                                 </span>
-                                {courseStats[c.course_id]?.[hole.hole_id] && (() => {
-                                  const stat = courseStats[c.course_id][hole.hole_id]
-                                  if (!stat.avg_strokes) return null
-                                  const vs = stat.avg_vs_par
-                                  const cls =
-                                    vs < 0 ? 'bg-[#079E78]/10 text-[#079E78]' :
-                                    vs === 0 ? 'bg-gray-100 text-gray-500' :
-                                    'bg-[#CC0131]/10 text-[#CC0131]'
-                                  return (
-                                    <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${cls}`}>
-                                      avg {stat.avg_strokes.toFixed(1)}
-                                    </span>
-                                  )
-                                })()}
                               </div>
                               <div className="flex items-center gap-4">
                                 <button
@@ -470,6 +462,118 @@ export default function ManageCourses() {
                           + Hole
                         </button>
                       </div>
+
+                      {/* Hole analytics table */}
+                      {courseStats[c.course_id] && courseHoles[c.course_id]?.length > 0 && (() => {
+                        const stats = courseStats[c.course_id]
+                        const holes = courseHoles[c.course_id]
+
+                        const tableData = holes.map((h) => ({
+                          hole_id: h.hole_id,
+                          hole_number: h.hole_number,
+                          par: currentPar(h.hole_id),
+                          avg_strokes: stats[h.hole_id]?.avg_strokes ?? null,
+                          avg_vs_par: stats[h.hole_id]?.avg_vs_par ?? null,
+                        }))
+
+                        const sorted = analyticsTab === 'compare'
+                          ? [...tableData].sort((a, b) => {
+                              const va = a[analyticsSortCol] ?? Infinity
+                              const vb = b[analyticsSortCol] ?? Infinity
+                              return analyticsSortDir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1)
+                            })
+                          : tableData
+
+                        function toggleSort(col) {
+                          if (analyticsSortCol === col) {
+                            setAnalyticsSortDir((d) => d === 'asc' ? 'desc' : 'asc')
+                          } else {
+                            setAnalyticsSortCol(col)
+                            setAnalyticsSortDir('asc')
+                          }
+                        }
+
+                        function vsParColor(v) {
+                          if (v == null) return 'text-gray-400'
+                          if (v < 0) return 'text-[#079E78]'
+                          if (v === 0) return 'text-gray-500'
+                          return 'text-[#CC0131]'
+                        }
+
+                        function SortHeader({ col, label }) {
+                          const active = analyticsSortCol === col
+                          return (
+                            <th
+                              className="px-3 py-2 text-right font-semibold cursor-pointer hover:bg-gray-100 select-none"
+                              onClick={() => toggleSort(col)}
+                            >
+                              {label}
+                              {active && <span className="ml-1">{analyticsSortDir === 'asc' ? '↑' : '↓'}</span>}
+                            </th>
+                          )
+                        }
+
+                        return (
+                          <div className="border-t border-silver">
+                            {/* Tab toggle */}
+                            <div className="flex gap-2 px-4 pt-3 pb-2">
+                              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide flex-1">Hole Analytics</p>
+                              <div className="flex gap-1">
+                                {['by_hole', 'compare'].map((tab) => (
+                                  <button
+                                    key={tab}
+                                    onClick={() => setAnalyticsTab(tab)}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-bold transition-colors ${
+                                      analyticsTab === tab
+                                        ? 'bg-forest text-white'
+                                        : 'bg-silver text-gray-600 hover:bg-gray-300'
+                                    }`}
+                                  >
+                                    {tab === 'by_hole' ? 'By Hole' : 'Compare'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-gray-50 text-gray-500 border-b border-silver">
+                                    <th className="px-3 py-2 text-left font-semibold">Hole</th>
+                                    <th className="px-3 py-2 text-right font-semibold">Par</th>
+                                    {analyticsTab === 'compare' ? (
+                                      <>
+                                        <SortHeader col="avg_strokes" label="Avg Strokes" />
+                                        <SortHeader col="avg_vs_par" label="Avg vs Par" />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <th className="px-3 py-2 text-right font-semibold">Avg Strokes</th>
+                                        <th className="px-3 py-2 text-right font-semibold">Avg vs Par</th>
+                                      </>
+                                    )}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {sorted.map((row, i) => (
+                                    <tr key={row.hole_id} className={`border-b border-silver last:border-b-0 ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                                      <td className="px-3 py-2 font-bold text-gray-900">#{row.hole_number}</td>
+                                      <td className="px-3 py-2 text-right text-gray-600">{row.par ?? '—'}</td>
+                                      <td className="px-3 py-2 text-right text-gray-700">
+                                        {row.avg_strokes != null ? row.avg_strokes.toFixed(1) : '—'}
+                                      </td>
+                                      <td className={`px-3 py-2 text-right font-bold ${vsParColor(row.avg_vs_par)}`}>
+                                        {row.avg_vs_par != null
+                                          ? (row.avg_vs_par > 0 ? `+${row.avg_vs_par.toFixed(2)}` : row.avg_vs_par.toFixed(2))
+                                          : '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </>
                   )}
                 </div>

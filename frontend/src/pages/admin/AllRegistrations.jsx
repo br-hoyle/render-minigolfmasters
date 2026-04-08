@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api/client'
+import LoadingOverlay from '../../components/LoadingOverlay'
 
 const STATUS_LABELS = {
   in_review: 'In Review',
@@ -186,7 +187,7 @@ export default function AllRegistrations() {
       })
   }, [registrations, userMap, search, tournamentFilter, selectedStatuses, sortDir])
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5">

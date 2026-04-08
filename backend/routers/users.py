@@ -25,10 +25,12 @@ class UpdateUserRequest(BaseModel):
     role: str | None = None
     status: str | None = None
     phone: str | None = None
+    email: str | None = None
 
 
 class UpdateMeRequest(BaseModel):
     phone: str | None = None
+    email: str | None = None
     current_password: str | None = None
     new_password: str | None = None
 
@@ -63,6 +65,11 @@ def update_me(body: UpdateMeRequest, current_user: dict = Depends(get_current_us
     updates = {}
     if body.phone is not None:
         updates["phone"] = body.phone
+    if body.email is not None and body.email != current_user.get("email"):
+        existing = sheets.get_user_by_email(body.email)
+        if existing and existing["user_id"] != current_user["user_id"]:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+        updates["email"] = body.email
     if body.new_password:
         if not body.current_password:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="current_password required")
@@ -191,10 +198,30 @@ def update_user(user_id: str, body: UpdateUserRequest, _: dict = Depends(require
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
     if body.status is not None and body.status not in ("active", "inactive"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status")
+
+    invite_sent = False
+    if body.email is not None and body.email != user.get("email"):
+        existing = sheets.get_user_by_email(body.email)
+        if existing and existing["user_id"] != user_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+        # If user hasn't accepted invite yet, generate fresh token and send to new address
+        if not user.get("password_hash"):
+            new_token = auth_utils.generate_invite_token()
+            invite_url = f"{FRONTEND_URL}/accept-invite?token={new_token}"
+            sheets.update_user(user_id, {"invite_token": new_token})
+            email_utils.send_email(
+                body.email,
+                "You're invited to Mini Golf Masters",
+                f"You've been invited! Set up your account here: {invite_url}",
+            )
+            invite_sent = True
+
     updates = body.model_dump(exclude_none=True)
     if updates:
         sheets.update_user(user_id, updates)
         user.update(updates)
-    return User(**user)
+    result = User(**user)
+    result.invite_pending = not bool(user.get("password_hash", ""))
+    return result
 
 

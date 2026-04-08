@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { api } from '../../api/client'
+import LoadingOverlay from '../../components/LoadingOverlay'
 
 export default function AdminRoundScores() {
   useEffect(() => {
@@ -42,9 +43,7 @@ export default function AdminRoundScores() {
         const sortedHoles = courseHoles.sort((a, b) => a.hole_number - b.hole_number)
         setHoles(sortedHoles)
 
-        const activePars = allPars.filter(
-          (p) => p.active_from <= t.start_date && p.active_to >= t.start_date
-        )
+        const activePars = allPars.filter((p) => p.active_to === '9999-12-31')
         const pm = Object.fromEntries(activePars.map((p) => [p.hole_id, Number(p.par_strokes)]))
         setParMap(pm)
 
@@ -146,9 +145,17 @@ export default function AdminRoundScores() {
     if (e.key === 'Escape') setEditingCell(null)
   }
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
   if (error) return <div className="p-8 text-center text-[#CC0131]">{error}</div>
   if (!tournament || !round) return null
+
+  // Compute missing scores summary
+  const missingScores = players
+    .filter((p) => !p.forfeit)
+    .flatMap((p) => {
+      const missingHoles = holes.filter((h) => p.scoreMap[h.hole_id] === undefined)
+      return missingHoles.length > 0 ? [{ name: p.name, holes: missingHoles.map((h) => h.hole_number) }] : []
+    })
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -172,6 +179,23 @@ export default function AdminRoundScores() {
         <p className="text-gray-400 text-sm">No accepted players yet.</p>
       )}
 
+      {/* Missing scores summary */}
+      {missingScores.length > 0 && (
+        <details className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm">
+          <summary className="font-semibold text-amber-800 cursor-pointer">
+            {missingScores.length} player{missingScores.length !== 1 ? 's' : ''} missing scores
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {missingScores.map(({ name, holes: missingHoles }) => (
+              <li key={name} className="text-amber-700">
+                <span className="font-medium">{name}</span>
+                {' — '}missing holes: {missingHoles.join(', ')}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {/* Score grid */}
       {players.length > 0 && holes.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-silver">
@@ -188,8 +212,8 @@ export default function AdminRoundScores() {
                 ))}
                 <th className="text-center px-3 py-3 font-semibold">Total</th>
               </tr>
-              <tr className="bg-emerald/10">
-                <td className="text-left px-4 py-2 font-semibold text-gray-600 sticky left-0 bg-emerald/10">
+              <tr className="bg-emerald">
+                <td className="text-left px-4 py-2 font-semibold text-gray-600 sticky left-0 bg-emerald">
                   Par
                 </td>
                 {holes.map((h) => (
@@ -226,11 +250,12 @@ export default function AdminRoundScores() {
                         editingCell?.holeId === h.hole_id
                       const value = player.scoreMap[h.hole_id]
                       const hasError = saveErrors[key]
+                      const isMissing = value === undefined && !player.forfeit
 
                       return (
                         <td
                           key={h.hole_id}
-                          className={`text-center px-1 py-1 ${hasError ? 'bg-red-50' : ''}`}
+                          className={`text-center px-1 py-1 ${hasError ? 'bg-red-50' : isMissing ? 'bg-amber-50' : ''}`}
                         >
                           {isEditing ? (
                             <input

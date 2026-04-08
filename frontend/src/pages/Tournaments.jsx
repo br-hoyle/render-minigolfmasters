@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import Banner from '../components/Banner'
+import LoadingOverlay from '../components/LoadingOverlay'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -76,7 +77,7 @@ export default function Tournaments() {
   }, [tournaments, search, filter])
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-400">Loading…</div>
+    return <LoadingOverlay />
   }
 
   return (
@@ -135,10 +136,8 @@ export default function Tournaments() {
             return (
               <div
                 key={t.tournament_id}
-                onClick={() => isClickable && navigate(`/leaderboard/${t.tournament_id}`)}
-                className={`bg-white rounded-xl border border-silver p-4 flex items-start justify-between gap-3 ${
-                  isClickable ? 'cursor-pointer hover:border-forest transition-colors' : ''
-                }`}
+                onClick={() => navigate(`/tournaments/${t.tournament_id}`)}
+                className="bg-white rounded-xl border border-silver p-4 flex items-start justify-between gap-3 cursor-pointer hover:border-forest transition-colors"
               >
                 <div className="min-w-0">
                   <p className="font-bold text-gray-900">{t.name}</p>
@@ -151,33 +150,13 @@ export default function Tournaments() {
                   )}
                 </div>
                 <div className="shrink-0 flex flex-col gap-2 items-end">
-                  {t.status === 'upcoming' ? (
-                    user ? (
-                      <Link
-                        to="/registrations"
-                        onClick={(e) => e.stopPropagation()}
-                        className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors block text-center"
-                      >
-                        Register
-                      </Link>
-                    ) : (
-                      <Link
-                        to={`/contact?subject=${encodeURIComponent(`${t.name} Inquiry`)}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors block text-center"
-                      >
-                        Contact Us
-                      </Link>
-                    )
-                  ) : (
-                    <Link
-                      to={`/leaderboard/${t.tournament_id}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors block text-center"
-                    >
-                      Leaderboard
-                    </Link>
-                  )}
+                  <Link
+                    to={`/tournaments/${t.tournament_id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors block text-center"
+                  >
+                    View
+                  </Link>
                   {canAddScores && (
                     <Link
                       to={`/scorecard/${myReg.registration_id}`}

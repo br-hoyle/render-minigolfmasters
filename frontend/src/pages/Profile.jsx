@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import Dialog from '../components/Dialog'
+import LoadingOverlay from '../components/LoadingOverlay'
 
 function formatPhone(value) {
   const digits = value.replace(/\D/g, '').slice(0, 10)
@@ -31,6 +32,12 @@ export default function Profile() {
   const [hcSuccess, setHcSuccess] = useState(false)
   const [hcError, setHcError] = useState(null)
 
+  // Email form
+  const [email, setEmail] = useState('')
+  const [savingEmail, setSavingEmail] = useState(false)
+  const [emailSaved, setEmailSaved] = useState(false)
+  const [emailError, setEmailError] = useState(null)
+
   // Phone form
   const [phone, setPhone] = useState('')
   const [savingPhone, setSavingPhone] = useState(false)
@@ -53,6 +60,7 @@ export default function Profile() {
         api.get('/handicap-requests/me').catch(() => []),
       ])
       setProfile(me)
+      setEmail(me.email || '')
       setPhone(me.phone || '')
 
       if (authUser) {
@@ -94,6 +102,23 @@ export default function Profile() {
       setHcError(err.message || 'Failed to submit request')
     } finally {
       setHcSubmitting(false)
+    }
+  }
+
+  async function handleSaveEmail(e) {
+    e.preventDefault()
+    setSavingEmail(true)
+    setEmailError(null)
+    setEmailSaved(false)
+    try {
+      const updated = await api.patch('/users/me', { email })
+      setProfile(updated)
+      setEmailSaved(true)
+      setTimeout(() => setEmailSaved(false), 3000)
+    } catch (err) {
+      setEmailError(err.message || 'Failed to save')
+    } finally {
+      setSavingEmail(false)
     }
   }
 
@@ -145,7 +170,7 @@ export default function Profile() {
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-400">Loading…</div>
+    return <LoadingOverlay />
   }
 
   if (!profile) return null
@@ -224,6 +249,30 @@ export default function Profile() {
           </div>
         </div>
       </div>
+
+      {/* Email edit card */}
+      <form onSubmit={handleSaveEmail} className="bg-white rounded-xl border border-silver p-5 space-y-4">
+        <h2 className="font-display font-bold text-lg text-gray-900">Email Address</h2>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+          />
+        </div>
+        {emailError && <p className="text-[#CC0131] text-sm">{emailError}</p>}
+        {emailSaved && <p className="text-emerald text-sm font-semibold">Email saved!</p>}
+        <button
+          type="submit"
+          disabled={savingEmail || email === profile?.email}
+          className="w-full bg-forest text-white font-semibold py-3 rounded-xl hover:bg-emerald transition-colors disabled:opacity-60 text-sm"
+        >
+          {savingEmail ? 'Saving…' : 'Save Email'}
+        </button>
+      </form>
 
       {/* Phone edit card */}
       <form onSubmit={handleSavePhone} className="bg-white rounded-xl border border-silver p-5 space-y-4">

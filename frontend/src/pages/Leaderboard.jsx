@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import LoadingOverlay from '../components/LoadingOverlay'
 
 function parBadge(score, par) {
   if (typeof par !== 'number' || typeof score !== 'number') return null
@@ -77,7 +78,7 @@ export default function Leaderboard() {
     }
   }, [fetchHolesForRound])
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
   if (error) return <div className="p-8 text-center text-[#CC0131]">{error}</div>
   if (!data) return null
 
@@ -183,6 +184,20 @@ export default function Leaderboard() {
     return vsParValue
   }
 
+  // Standard competition ranking: tied scores share the same rank, next rank skips
+  // e.g. [10, 12, 12, 14] → [1, 2, 2, 4]
+  function computePositions(sortedRows) {
+    return sortedRows.map((row, i) => {
+      if (row.forfeit || row.gross === 0) return null
+      const ahead = sortedRows.slice(0, i).filter(
+        (r) => !r.forfeit && r.gross > 0 && r.displayScore < row.displayScore
+      ).length
+      return ahead + 1
+    })
+  }
+
+  const positions = computePositions(rows)
+
   // Build drill-down data for a player
   function buildDrillDown(userId, registrationId) {
     return sortedRounds.map((round) => {
@@ -204,10 +219,10 @@ export default function Leaderboard() {
     <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
       {/* Back link */}
       <button
-        onClick={() => navigate('/tournaments')}
+        onClick={() => navigate(`/tournaments/${tournamentId}`)}
         className="text-[#135D40] font-semibold text-sm hover:underline"
       >
-        ← Tournaments
+        ← Tournament Details
       </button>
 
       {/* Tournament name + recap link */}
@@ -263,65 +278,69 @@ export default function Leaderboard() {
           <span className="text-gray-400">{leaderboardOpen ? '∧' : '∨'}</span>
         </button>
 
-        {leaderboardOpen && (
-          <div className="border-t border-[#E0E1E5]">
-            {/* Round filter tabs */}
-            {sortedRounds.length > 1 && (
-              <div className="flex gap-2 px-4 py-3 overflow-x-auto">
+        <div className="border-t border-[#E0E1E5]">
+          {/* Round filter tabs — only when expanded */}
+          {leaderboardOpen && sortedRounds.length > 1 && (
+            <div className="flex gap-2 px-4 py-3 overflow-x-auto">
+              <button
+                onClick={() => setSelectedRoundFilter('overall')}
+                className={`shrink-0 px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                  selectedRoundFilter === 'overall'
+                    ? 'bg-[#135D40] text-white'
+                    : 'bg-[#E0E1E5] text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                Overall
+              </button>
+              {sortedRounds.map((r) => (
                 <button
-                  onClick={() => setSelectedRoundFilter('overall')}
+                  key={r.round_id}
+                  onClick={() => setSelectedRoundFilter(r.round_id)}
                   className={`shrink-0 px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                    selectedRoundFilter === 'overall'
+                    selectedRoundFilter === r.round_id
                       ? 'bg-[#135D40] text-white'
                       : 'bg-[#E0E1E5] text-gray-700 hover:bg-gray-300'
                   }`}
                 >
-                  Overall
+                  {r.label || `Round ${r.round_number}`}
                 </button>
-                {sortedRounds.map((r) => (
-                  <button
-                    key={r.round_id}
-                    onClick={() => setSelectedRoundFilter(r.round_id)}
-                    className={`shrink-0 px-3 py-1 rounded-full text-xs font-bold transition-colors ${
-                      selectedRoundFilter === r.round_id
-                        ? 'bg-[#135D40] text-white'
-                        : 'bg-[#E0E1E5] text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    {r.label || `Round ${r.round_number}`}
-                  </button>
-                ))}
-              </div>
-            )}
+              ))}
+            </div>
+          )}
 
-            {rows.length === 0 ? (
-              <p className="text-center py-6 text-gray-400 text-sm">No scores yet.</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-[#135D40] text-white text-xs">
-                    <th className="px-4 py-2 text-left font-semibold w-6">#</th>
-                    <th className="px-2 py-2 text-left font-semibold">Player</th>
-                    <th className="px-2 py-2 text-center font-semibold">+/-</th>
-                    <th className="px-4 py-2 text-right font-semibold">Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, i) => {
-                    const isExpanded = expandedPlayer === row.user_id
-                    const drillDown = isExpanded ? buildDrillDown(row.user_id, row.registration_id) : []
+          {rows.length === 0 ? (
+            <p className="text-center py-6 text-gray-400 text-sm">No scores yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-[#135D40] text-white text-xs">
+                  <th className="px-4 py-2 text-left font-semibold w-6">#</th>
+                  <th className="px-2 py-2 text-left font-semibold">Player</th>
+                  <th className="px-2 py-2 text-center font-semibold">+/-</th>
+                  <th className="px-4 py-2 text-right font-semibold">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => {
+                  // Always show top 3 positions; hide the rest when collapsed
+                  const pos = positions[i]
+                  const isTop3 = pos !== null && pos <= 3
+                  if (!leaderboardOpen && !isTop3) return null
 
-                    return (
-                      <>
-                        <tr
-                          key={row.user_id}
-                          className={`border-b border-[#E0E1E5] ${row.forfeit ? 'opacity-50' : ''} ${
-                            isExpanded ? 'bg-gray-50' : ''
-                          }`}
-                        >
-                          <td className="px-4 py-3 text-gray-400 text-xs w-6">
-                            {row.forfeit ? '' : row.gross === 0 ? '—' : i + 1}
-                          </td>
+                  const isExpanded = expandedPlayer === row.user_id
+                  const drillDown = isExpanded ? buildDrillDown(row.user_id, row.registration_id) : []
+
+                  return (
+                    <>
+                      <tr
+                        key={row.user_id}
+                        className={`border-b border-[#E0E1E5] ${row.forfeit ? 'opacity-50' : ''} ${
+                          isExpanded ? 'bg-gray-50' : ''
+                        }`}
+                      >
+                        <td className="px-4 py-3 text-gray-400 text-xs w-6">
+                          {row.forfeit ? '' : row.gross === 0 ? '—' : pos}
+                        </td>
                           <td className="px-2 py-3 font-bold text-gray-900">
                             <button
                               onClick={() => handlePlayerClick(row.user_id, sortedRounds)}
@@ -416,7 +435,6 @@ export default function Leaderboard() {
               </table>
             )}
           </div>
-        )}
       </section>
 
       {/* Rounds section */}

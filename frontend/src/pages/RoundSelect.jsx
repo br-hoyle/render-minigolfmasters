@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
+import LoadingOverlay from '../components/LoadingOverlay'
 
 export default function RoundSelect() {
   useEffect(() => {
@@ -33,7 +34,7 @@ export default function RoundSelect() {
     load()
   }, [registrationId])
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
   if (error) return <div className="p-8 text-center text-[#CC0131]">{error}</div>
 
   return (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import LoadingOverlay from '../components/LoadingOverlay'
 
 export default function History() {
   useEffect(() => {
@@ -17,7 +18,7 @@ export default function History() {
     })
   }, [])
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8 space-y-6">

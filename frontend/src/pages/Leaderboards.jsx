@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import Banner from '../components/Banner'
+import LoadingOverlay from '../components/LoadingOverlay'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -58,7 +59,7 @@ export default function Leaderboards() {
   }, [tournaments, search, filter])
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-400">Loading…</div>
+    return <LoadingOverlay />
   }
 
   return (

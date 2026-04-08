@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
 import Dialog from '../../components/Dialog'
+import LoadingOverlay from '../../components/LoadingOverlay'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -55,7 +56,7 @@ export default function Dashboard() {
     setTournaments((ts) => ts.filter((t) => t.tournament_id !== tournamentId))
   }
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
 
   const filteredTournaments = tournaments.filter((t) => {
     const matchesSearch = !search || t.name.toLowerCase().includes(search.toLowerCase())

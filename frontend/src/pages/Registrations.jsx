@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import Banner from '../components/Banner'
+import LoadingOverlay from '../components/LoadingOverlay'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -55,7 +56,7 @@ export default function Registrations() {
         api.get('/rounds/'),
       ])
       setTournaments(ts)
-      setMyRegs(regs)
+      setMyRegs(regs.filter((r) => r.user_id === user.user_id))
       setRounds(rs)
       setLoading(false)
     }
@@ -81,7 +82,7 @@ export default function Registrations() {
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-400">Loading…</div>
+    return <LoadingOverlay />
   }
 
   const filterMap = {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api/client'
 import ScoreGrid from '../components/ScoreGrid'
+import { Spinner } from '../components/LoadingOverlay'
 import { getQueuedScores, queueScores, syncQueue } from '../utils/offlineQueue'
 
 function parLabel(score, par) {
@@ -438,7 +439,7 @@ export default function Scorecard() {
             disabled={isSaving}
             className="w-full bg-white text-gray-900 font-bold text-lg py-4 rounded-2xl active:scale-95 transition-transform disabled:opacity-50"
           >
-            {isSaving ? 'Submitting…' : 'Confirm & Submit Round'}
+            {isSaving ? <span className="flex items-center justify-center gap-2"><Spinner className="h-5 w-5" /> Submitting…</span> : 'Confirm & Submit Round'}
           </button>
         </div>
       </div>
@@ -534,7 +535,7 @@ export default function Scorecard() {
             disabled={isSaving || roundLocked}
             className="mt-4 w-full bg-white text-gray-900 font-bold text-lg py-4 rounded-2xl active:scale-95 transition-transform disabled:opacity-50"
           >
-            {isSaving ? 'Saving…' : 'Submit All Scores'}
+            {isSaving ? <span className="flex items-center justify-center gap-2"><Spinner className="h-5 w-5" /> Saving…</span> : 'Submit All Scores'}
           </button>
         </div>
       )}
@@ -602,7 +603,7 @@ export default function Scorecard() {
               disabled={isSaving || roundLocked}
               className="w-full bg-white text-gray-900 font-bold text-lg py-4 rounded-2xl active:scale-95 transition-transform disabled:opacity-50"
             >
-              {isSaving ? 'Saving…' : isLast ? 'Review & Complete Round' : 'Save'}
+              {isSaving ? <span className="flex items-center justify-center gap-2"><Spinner className="h-5 w-5" /> Saving…</span> : isLast ? 'Review & Complete Round' : 'Save'}
             </button>
           </div>
 

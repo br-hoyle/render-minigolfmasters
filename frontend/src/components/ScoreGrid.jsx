@@ -23,8 +23,8 @@ export default function ScoreGrid({ holes, pars, scores, onScoreChange }) {
       {holes.map((hole) => {
         const hid = hole.hole_id
         const par = pars[hid] ?? null
-        const score = scores[hid] ?? (typeof par === 'number' ? par : 3)
-        const badge = parBadge(score, par)
+        const score = scores[hid] ?? null
+        const badge = score !== null ? parBadge(score, par) : null
 
         return (
           <div
@@ -41,20 +41,26 @@ export default function ScoreGrid({ holes, pars, scores, onScoreChange }) {
             <div className="flex items-center gap-2 flex-1">
               <button
                 type="button"
-                onClick={() => score > MIN_SCORE && onScoreChange(hid, score - 1)}
-                disabled={score <= MIN_SCORE}
+                onClick={() => {
+                  if (score === null) onScoreChange(hid, par ?? MIN_SCORE)
+                  else if (score > MIN_SCORE) onScoreChange(hid, score - 1)
+                }}
+                disabled={score !== null && score <= MIN_SCORE}
                 className="h-10 w-10 rounded-lg bg-white/20 text-white text-xl font-black flex items-center justify-center active:scale-95 transition-transform disabled:opacity-30"
                 aria-label={`Decrease hole ${hole.hole_number}`}
               >
                 −
               </button>
               <span className="text-white font-display font-black text-2xl w-8 text-center">
-                {score}
+                {score ?? '—'}
               </span>
               <button
                 type="button"
-                onClick={() => score < MAX_SCORE && onScoreChange(hid, score + 1)}
-                disabled={score >= MAX_SCORE}
+                onClick={() => {
+                  if (score === null) onScoreChange(hid, par ?? MIN_SCORE)
+                  else if (score < MAX_SCORE) onScoreChange(hid, score + 1)
+                }}
+                disabled={score !== null && score >= MAX_SCORE}
                 className="h-10 w-10 rounded-lg bg-white/20 text-white text-xl font-black flex items-center justify-center active:scale-95 transition-transform disabled:opacity-30"
                 aria-label={`Increase hole ${hole.hole_number}`}
               >

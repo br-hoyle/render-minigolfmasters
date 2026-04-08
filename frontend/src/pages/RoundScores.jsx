@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import LoadingOverlay from '../components/LoadingOverlay'
 
 export default function RoundScores() {
   useEffect(() => {
@@ -69,7 +70,7 @@ export default function RoundScores() {
     load()
   }, [tournamentId, roundId])
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
   if (error) return <div className="p-8 text-center text-[#CC0131]">{error}</div>
   if (!data) return null
 
@@ -120,6 +121,15 @@ export default function RoundScores() {
       return a.displayScore - b.displayScore
     })
 
+  // Standard competition ranking: tied scores share the same rank, next rank skips
+  const leaderboardPositions = leaderboardRows.map((row, i) => {
+    if (row.forfeit || row.gross === 0) return null
+    const ahead = leaderboardRows.slice(0, i).filter(
+      (r) => !r.forfeit && r.gross > 0 && r.displayScore < row.displayScore
+    ).length
+    return ahead + 1
+  })
+
   function badgeClass(vsParValue) {
     if (vsParValue === null) return 'bg-silver text-gray-600'
     if (vsParValue < 0) return 'bg-[#CC0131] text-white'
@@ -147,41 +157,43 @@ export default function RoundScores() {
 
       {/* Round header */}
       <div className="flex items-center justify-between gap-3">
-        <h1 className="font-display font-black text-3xl text-gray-900">
-          {round?.label || `Round ${round?.round_number || '—'}`}
-        </h1>
-        {canAddScores && (
-          <Link
-            to={`/scorecard/${myReg.registration_id}/${roundId}`}
-            className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors shrink-0"
-          >
-            + Add Scores
-          </Link>
-        )}
-      </div>
-
-      {round?.label && (
-        <p className="text-sm text-gray-500 -mt-4">Round {round.round_number}</p>
-      )}
-
-      {/* Handicap toggle */}
-      <div className="flex items-center justify-end gap-2">
-        <span className="text-sm font-semibold text-gray-700">Handicap</span>
-        <button
-          onClick={() => setHandicapOn((on) => !on)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            handicapOn ? 'bg-forest' : 'bg-silver'
-          }`}
-          role="switch"
-          aria-checked={handicapOn}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              handicapOn ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
-        <span className="text-xs text-gray-500">{handicapOn ? 'On' : 'Off'}</span>
+        <div>
+          <h1 className="font-display font-black text-3xl text-gray-900">
+            {round?.label || `Round ${round?.round_number || '—'}`}
+          </h1>
+          {round?.label && (
+            <p className="text-sm text-gray-500">Round {round.round_number}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {/* Handicap toggle inline */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-400 font-medium">HCP</span>
+            <button
+              onClick={() => setHandicapOn((on) => !on)}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                handicapOn ? 'bg-forest' : 'bg-silver'
+              }`}
+              role="switch"
+              aria-checked={handicapOn}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                  handicapOn ? 'translate-x-4' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+            <span className="text-xs text-gray-400">{handicapOn ? 'On' : 'Off'}</span>
+          </div>
+          {canAddScores && (
+            <Link
+              to={`/scorecard/${myReg.registration_id}/${roundId}`}
+              className="bg-forest text-white font-semibold text-sm px-4 py-2 rounded-full hover:bg-emerald transition-colors"
+            >
+              + Add Scores
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Leaderboard section */}
@@ -211,7 +223,7 @@ export default function RoundScores() {
                 <tbody>
                   {leaderboardRows.map((row, i) => (
                     <tr key={i} className={`border-b border-silver last:border-b-0 ${row.forfeit ? 'opacity-50' : ''}`}>
-                      <td className="px-4 py-3 text-gray-400 text-xs w-6">{row.forfeit ? '' : i + 1}</td>
+                      <td className="px-4 py-3 text-gray-400 text-xs w-6">{row.forfeit ? '' : row.gross === 0 ? '—' : leaderboardPositions[i]}</td>
                       <td className="px-2 py-3 font-bold text-gray-900">
                         {row.name}
                         {row.forfeit && (
@@ -248,8 +260,8 @@ export default function RoundScores() {
                     </th>
                   ))}
                 </tr>
-                <tr className="bg-emerald/10">
-                  <td className="text-left px-4 py-2 font-semibold text-gray-700 sticky left-0 bg-emerald/10">Par</td>
+                <tr className="bg-emerald">
+                  <td className="text-left px-4 py-2 font-semibold text-gray-700 sticky left-0 bg-emerald">Par</td>
                   {holes.map((h) => (
                     <td key={h.hole_id} className="text-center px-3 py-2 font-bold text-gray-800">
                       {parMap[h.hole_id] ?? '—'}

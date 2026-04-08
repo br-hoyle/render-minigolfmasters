@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../../api/client'
 import Dialog from '../../components/Dialog'
+import LoadingOverlay from '../../components/LoadingOverlay'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -67,9 +68,17 @@ export default function ManageTournament() {
 
   // Announce state
   const [announceOpen, setAnnounceOpen] = useState(false)
-  const [announceForm, setAnnounceForm] = useState({ subject: '', message: '' })
+  const [announceForm, setAnnounceForm] = useState({ subject: '', message: '', statuses: ['accepted'] })
   const [announcing, setAnnouncing] = useState(false)
   const [announceResult, setAnnounceResult] = useState(null)
+
+  const ANNOUNCE_STATUS_OPTIONS = [
+    { value: 'accepted', label: 'Accepted' },
+    { value: 'in_review', label: 'Pending' },
+    { value: 'waitlisted', label: 'Waitlisted' },
+    { value: 'forfeit', label: 'Forfeit' },
+    { value: 'rejected', label: 'Rejected' },
+  ]
 
   // Scores tab state
   const [scoreRegId, setScoreRegId] = useState('')
@@ -105,11 +114,11 @@ export default function ManageTournament() {
       ])
       const formData = {
         name: t.name,
-        start_date: t.start_date,
-        end_date: t.end_date,
+        start_date: (t.start_date || '').slice(0, 10),
+        end_date: (t.end_date || '').slice(0, 10),
         entry_fee: t.entry_fee || '',
         max_players: t.max_players || '',
-        registration_deadline: t.registration_deadline || '',
+        registration_deadline: (t.registration_deadline || '').slice(0, 10),
       }
       setOriginal(formData)
       setForm(formData)
@@ -135,11 +144,15 @@ export default function ManageTournament() {
     e.preventDefault()
     setSaving(true)
     try {
+      const payload = {
+        ...form,
+        registration_deadline: form.registration_deadline || null,
+      }
       if (isNew) {
-        const t = await api.post('/tournaments/', form)
+        const t = await api.post('/tournaments/', payload)
         navigate(`/admin/tournaments/${t.tournament_id}`, { replace: true })
       } else {
-        const t = await api.patch(`/tournaments/${tournamentId}`, form)
+        const t = await api.patch(`/tournaments/${tournamentId}`, payload)
         setOriginal(form)
         setTournamentStatus(t.status)
       }
@@ -246,7 +259,7 @@ export default function ManageTournament() {
     try {
       const result = await api.post(`/tournaments/${tournamentId}/announce`, announceForm)
       setAnnounceResult(result)
-      setAnnounceForm({ subject: '', message: '' })
+      setAnnounceForm({ subject: '', message: '', statuses: ['accepted'] })
     } catch (err) {
       alert(err.message || 'Failed to send announcement')
     } finally {
@@ -287,7 +300,7 @@ export default function ManageTournament() {
         const sorted = holes.sort((a, b) => a.hole_number - b.hole_number)
         const initial = {}
         sorted.forEach((h) => {
-          initial[h.hole_id] = scoreMap[h.hole_id] ?? parMap[h.hole_id] ?? 3
+          initial[h.hole_id] = scoreMap[h.hole_id] ?? null
         })
 
         setScoreHoles(sorted)
@@ -310,12 +323,14 @@ export default function ManageTournament() {
     setScoreError(null)
     setScoreSaved(false)
     try {
-      const scoresList = scoreHoles.map((h) => ({
-        registration_id: scoreRegId,
-        round_id: scoreRoundId,
-        hole_id: h.hole_id,
-        strokes: Number(scoreEdits[h.hole_id]) || 0,
-      }))
+      const scoresList = scoreHoles
+        .filter((h) => scoreEdits[h.hole_id] != null)
+        .map((h) => ({
+          registration_id: scoreRegId,
+          round_id: scoreRoundId,
+          hole_id: h.hole_id,
+          strokes: Number(scoreEdits[h.hole_id]),
+        }))
       await api.post('/scores/', { scores: scoresList })
       setScoreOriginal({ ...scoreEdits })
       setScoreSaved(true)
@@ -382,7 +397,7 @@ export default function ManageTournament() {
       return regSortOrder === 'newest' ? bTime - aTime : aTime - bTime
     })
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading…</div>
+  if (loading) return <LoadingOverlay />
 
   const statusPillClass = STATUS_PILL[tournamentStatus] || 'bg-silver text-gray-500'
 
@@ -734,7 +749,11 @@ export default function ManageTournament() {
                               <div className="flex items-center justify-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => setScoreEdits((e) => ({ ...e, [h.hole_id]: Math.max(1, (e[h.hole_id] || 1) - 1) }))}
+                                  onClick={() => setScoreEdits((e) => {
+                                    const cur = e[h.hole_id]
+                                    const next = cur == null ? (scorePars[h.hole_id] ?? 1) : Math.max(1, cur - 1)
+                                    return { ...e, [h.hole_id]: next }
+                                  })}
                                   className="w-7 h-7 rounded-full bg-silver text-gray-700 font-bold text-sm flex items-center justify-center hover:bg-gray-300 transition-colors"
                                 >−</button>
                                 <span className="font-bold text-gray-900 w-6 text-center">
@@ -742,7 +761,11 @@ export default function ManageTournament() {
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => setScoreEdits((e) => ({ ...e, [h.hole_id]: Math.min(20, (e[h.hole_id] || 1) + 1) }))}
+                                  onClick={() => setScoreEdits((e) => {
+                                    const cur = e[h.hole_id]
+                                    const next = cur == null ? (scorePars[h.hole_id] ?? 1) : Math.min(20, cur + 1)
+                                    return { ...e, [h.hole_id]: next }
+                                  })}
                                   className="w-7 h-7 rounded-full bg-silver text-gray-700 font-bold text-sm flex items-center justify-center hover:bg-gray-300 transition-colors"
                                 >+</button>
                               </div>
@@ -893,9 +916,16 @@ export default function ManageTournament() {
 
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-gray-900">{userName(reg.user_id)}</p>
-                      <p className={`text-sm italic capitalize ${statusColor}`}>
-                        {reg.status === 'in_review' ? 'pending' : reg.status}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className={`text-sm italic capitalize ${statusColor}`}>
+                          {reg.status === 'in_review' ? 'pending' : reg.status}
+                        </p>
+                        {reg.submitted_at && (
+                          <p className="text-xs italic text-gray-400">
+                            {new Date(reg.submitted_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </p>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
                       {reg.status === 'in_review' && (
@@ -1034,6 +1064,38 @@ export default function ManageTournament() {
         ) : (
           <form onSubmit={handleAnnounce} className="space-y-4">
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Send To</label>
+              <div className="flex flex-wrap gap-2">
+                {ANNOUNCE_STATUS_OPTIONS.map((opt) => {
+                  const checked = announceForm.statuses.includes(opt.value)
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setAnnounceForm((f) => {
+                          const next = checked
+                            ? f.statuses.filter((s) => s !== opt.value)
+                            : [...f.statuses, opt.value]
+                          return { ...f, statuses: next.length ? next : [opt.value] }
+                        })
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
+                        checked
+                          ? 'bg-forest text-white border-forest'
+                          : 'bg-white text-gray-600 border-silver hover:border-forest'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                ~{registrations.filter((r) => announceForm.statuses.includes(r.status)).length} recipient{registrations.filter((r) => announceForm.statuses.includes(r.status)).length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
               <input
                 type="text"
@@ -1055,9 +1117,6 @@ export default function ManageTournament() {
                 className="w-full border border-silver rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest resize-none"
               />
             </div>
-            <p className="text-xs text-gray-400">
-              Sends to all accepted registrants for this tournament.
-            </p>
             <button
               type="submit"
               disabled={announcing}

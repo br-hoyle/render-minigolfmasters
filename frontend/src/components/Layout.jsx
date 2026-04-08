@@ -73,6 +73,9 @@ export default function Layout() {
                   <Link to="/leaderboards" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
                     Leaderboards
                   </Link>
+                  <Link to="/courses" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
+                    Courses
+                  </Link>
                   <Link to="/contact" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
                     Contact Us
                   </Link>
@@ -121,7 +124,7 @@ export default function Layout() {
           </Link>
           <img src="/images/mgmt_logo_brandmark.png" alt="Mini Golf Masters" className="h-16 object-contain mt-2" />
           <p className="font-bold text-white text-lg">Mini Golf Masters</p>
-          <p className="italic text-sm text-white/70">putting responsibly since 2024</p>
+          <p className="italic text-xs text-white/70">putting responsibly since 2024</p>
         </div>
       </footer>
     </div>
