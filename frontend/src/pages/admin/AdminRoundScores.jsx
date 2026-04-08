@@ -212,8 +212,8 @@ export default function AdminRoundScores() {
                 ))}
                 <th className="text-center px-3 py-3 font-semibold">Total</th>
               </tr>
-              <tr className="bg-emerald">
-                <td className="text-left px-4 py-2 font-semibold text-gray-600 sticky left-0 bg-emerald">
+              <tr className="bg-[#cce3d8]">
+                <td className="text-left px-4 py-2 font-semibold text-gray-600 sticky left-0 bg-[#cce3d8]">
                   Par
                 </td>
                 {holes.map((h) => (
