@@ -100,41 +100,25 @@ export default function Leaderboard() {
     tournament.status === 'active' &&
     (myReg.status === 'accepted' || user?.role === 'admin')
 
-  // Filter scores by round selection (cumulative through selected round)
+  // Filter scores by round selection — single round only, not cumulative
   const filteredScores = (() => {
     if (selectedRoundFilter === 'overall') return scores
-    const selectedRound = rounds.find((r) => r.round_id === selectedRoundFilter)
-    if (!selectedRound) return scores
-    const includedRoundIds = new Set(
-      rounds
-        .filter((r) => r.round_number <= selectedRound.round_number)
-        .map((r) => r.round_id)
-    )
-    return scores.filter((s) => includedRoundIds.has(s.round_id))
+    return scores.filter((s) => s.round_id === selectedRoundFilter)
   })()
 
   // Build leaderboard rows
   const accepted = registrations.filter((r) => r.status === 'accepted' || r.status === 'forfeit')
 
-  let activePars = pars.filter(
-    (p) =>
-      p.active_from.slice(0, 10) <= tournament.start_date &&
-      p.active_to.slice(0, 10) >= tournament.start_date
-  )
+  let activePars = pars.filter((p) => String(p.active_to).slice(0, 10) === '9999-12-31')
   if (activePars.length === 0) {
-    activePars = pars.filter((p) => String(p.active_to).slice(0, 10) === '9999-12-31')
+    activePars = pars.filter(
+      (p) =>
+        p.active_from.slice(0, 10) <= tournament.start_date &&
+        p.active_to.slice(0, 10) >= tournament.start_date
+    )
   }
 
-  // For the selected round filter, compute total par only for rounds included
-  const totalPar = (() => {
-    if (selectedRoundFilter === 'overall') {
-      return activePars.reduce((sum, p) => sum + (Number(p.par_strokes) || 0), 0)
-    }
-    const selectedRound = rounds.find((r) => r.round_id === selectedRoundFilter)
-    if (!selectedRound) return activePars.reduce((sum, p) => sum + (Number(p.par_strokes) || 0), 0)
-    // We don't have holes-per-round easily here, so use all pars (approximate)
-    return activePars.reduce((sum, p) => sum + (Number(p.par_strokes) || 0), 0)
-  })()
+  const parMap = Object.fromEntries(activePars.map((p) => [p.hole_id, Number(p.par_strokes)]))
 
   const rows = accepted.map((reg) => {
     const u = users.find((u) => u.user_id === reg.user_id) || {}
@@ -146,9 +130,11 @@ export default function Leaderboard() {
     )
     const playerScores = filteredScores.filter((s) => s.registration_id === reg.registration_id)
     const gross = playerScores.reduce((sum, s) => sum + (Number(s.strokes) || 0), 0)
+    // Compute par only for the holes this player actually scored — correct for any round/overall view
+    const playerTotalPar = playerScores.reduce((sum, s) => sum + (parMap[s.hole_id] || 0), 0)
     const net = gross - (Number(handicap?.strokes) || 0)
     const displayScore = handicapOn ? net : gross
-    const vsParValue = totalPar > 0 && gross > 0 ? displayScore - totalPar : null
+    const vsParValue = playerTotalPar > 0 && gross > 0 ? displayScore - playerTotalPar : null
     return {
       user_id: reg.user_id,
       registration_id: reg.registration_id,
@@ -171,9 +157,9 @@ export default function Leaderboard() {
 
   function badgeClass(vsParValue) {
     if (vsParValue === null) return 'bg-[#E0E1E5] text-gray-600'
-    if (vsParValue < 0) return 'bg-[#CC0131] text-white'
+    if (vsParValue < 0) return 'bg-[#079E78] text-white'
     if (vsParValue === 0) return 'bg-[#E0E1E5] text-gray-700'
-    return 'bg-[#135D40] text-white'
+    return 'bg-[#CC0131] text-white'
   }
 
   function badgeLabel(displayScore, vsParValue) {
@@ -198,7 +184,7 @@ export default function Leaderboard() {
 
   const positions = computePositions(rows)
 
-  // Build drill-down data for a player
+  // Build drill-down data for a player (always shows all rounds regardless of tab)
   function buildDrillDown(userId, registrationId) {
     return sortedRounds.map((round) => {
       const holes = holesByRound[round.course_id] || []
@@ -207,9 +193,6 @@ export default function Leaderboard() {
         (s) => s.registration_id === registrationId && s.round_id === round.round_id
       )
       const scoreMap = Object.fromEntries(roundScores.map((s) => [s.hole_id, Number(s.strokes)]))
-      const parMap = Object.fromEntries(
-        activePars.map((p) => [p.hole_id, Number(p.par_strokes)])
-      )
       const roundGross = roundScores.reduce((sum, s) => sum + (Number(s.strokes) || 0), 0)
       return { round, sortedHoles, scoreMap, parMap, roundGross }
     })
