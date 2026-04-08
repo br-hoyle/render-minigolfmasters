@@ -19,25 +19,29 @@ Built to run for free. Designed to last for years.
 
 ### Leaderboard & History
 - **Live leaderboard** — real-time gross and net scores (handicap-adjusted), color-coded by par
-- **Round-by-round standings** — tab bar filters the leaderboard cumulatively through any round
+- **Round-by-round standings** — tab bar shows scores for that individual round; competition ranking (tied players share rank)
+- **Top 3 always visible** — top 3 positions stay visible even when the leaderboard is collapsed
 - **Player drill-down** — tap any player's name to expand their hole-by-hole scorecard per round
 - **Score history** — every score, every hole, every player, every year — all public
-- **Tournament recap page** — champion, tightest finish, hardest hole, best single round, shareable link
-- **Course difficulty analysis** — avg strokes per hole shown in the round scores view and admin course management
+- **Tournament detail page** — public page per tournament with rounds, course addresses (maps link), and player list
+- **Tournament recap page** — podium (top 3), tightest finish, hardest hole, best single round (+/- par), last place, most birdies/bogeys, hole-in-ones grouped by player, over/under achiever — shareable link
+- **Course pages** — public list of courses and per-course analytics: avg score, ace rate, bogey rate, volatility, vs par, and per-hole breakdown with sortable compare table
 
 ### Registration & Communication
-- **Tournament registration** — players register from My Registrations; admins accept/reject/forfeit
+- **Tournament registration** — players register from the tournament detail page or My Registrations; admins accept/reject/forfeit
 - **Player cap + waitlist** — tournaments can set `max_players`; overflow registrations become `waitlisted` and auto-promote on vacancy
 - **Registration deadline** — admins can set a cutoff date; late registrations are blocked at the API level
 - **Acceptance/rejection emails** — players are notified by email when their registration status changes
-- **Tournament announcements** — admins can email all accepted registrants at once from the admin panel
+- **Tournament announcements** — admins can email registrants filtered by status (accepted, waitlisted, etc.) at once from the admin panel
 
 ### Admin & Tournament Management
 - **Tournament creation** — set name, dates, entry fee, max players, and registration deadline
 - **Bulk registration actions** — select multiple registrations and accept/reject in one step
-- **Registration sorting** — sort pending registrations by newest or oldest submitted
+- **Registration sorting** — sort pending registrations by newest or oldest submitted; registration date shown on each tile
 - **Score audit log** — tracks admin overrides with previous value, new value, modifier, and timestamp
+- **Missing scores indicator** — admin round scores page highlights players with incomplete holes
 - **Bulk par entry** — set all hole pars for a course at once via a grid dialog
+- **Course analytics** — accordion table + sortable compare tab for hole-by-hole difficulty metrics
 - **Admin stats dashboard** — at-a-glance counts for pending registrations, active tournaments, last score time, and pending handicap requests
 
 ### Handicap System
@@ -49,9 +53,10 @@ Built to run for free. Designed to last for years.
 - **Centralized email utility** — single `email_utils.send_email()` used across all email-sending flows
 - **Score versioning** — scores carry a version field for optimistic concurrency conflict detection
 - **Score audit log** — immutable record of every admin override
-- **Invite-only accounts** — players are invited by email; no open registration
+- **Invite-only accounts** — players are invited by email; no open registration. Admin can update a pending user's email to resend the invite to a new address.
 - **Role-based access** — players, tournament admins, and global admins each have distinct permissions
-- **User profiles** — players can update their phone number and change their password
+- **User profiles** — players can update their email (immediate, no verification), phone, and password
+- **Loading states** — consistent full-screen `LoadingOverlay` and inline `Spinner` components used throughout
 - **Contact form** — public inquiry form delivered directly to organizers by email
 
 ---
@@ -82,11 +87,11 @@ render-minigolfmasters/
 │   ├── dependencies.py          # FastAPI dependencies (get_current_user, require_admin, etc.)
 │   ├── routers/
 │   │   ├── auth.py              # Login, accept-invite, reset-password
-│   │   ├── users.py             # Users, invites, championships
-│   │   ├── tournaments.py       # Tournaments, recap, announce, admin stats
+│   │   ├── users.py             # Users, invites, email update, championships
+│   │   ├── tournaments.py       # Tournaments, rich recap, announce (status filter), admin stats
 │   │   ├── registrations.py     # Registrations, waitlist, bulk actions
 │   │   ├── rounds.py            # Rounds, lock/unlock
-│   │   ├── courses.py           # Courses, holes, difficulty stats
+│   │   ├── courses.py           # Courses, holes, /analytics (rich), /stats (simple)
 │   │   ├── pars.py              # Pars (SCD), bulk par entry
 │   │   ├── handicaps.py         # Handicaps (SCD)
 │   │   ├── handicap_requests.py # Player handicap review requests
@@ -107,6 +112,7 @@ render-minigolfmasters/
 │       ├── context/             # Auth context
 │       ├── components/
 │       │   ├── Layout.jsx       # Mobile shell, header, footer, offline sync banner
+│       │   ├── LoadingOverlay.jsx # Full-screen loader + inline Spinner
 │       │   ├── ScoreStepper.jsx # Large +/− tap input for single-hole scoring
 │       │   ├── ScoreGrid.jsx    # Compact grid mode — all holes at once
 │       │   ├── ProtectedRoute.jsx
@@ -120,21 +126,24 @@ render-minigolfmasters/
 │           ├── Login.jsx
 │           ├── AcceptInvite.jsx
 │           ├── ResetPassword.jsx
-│           ├── Tournaments.jsx
+│           ├── Tournaments.jsx           # All tournaments; cards link to TournamentDetail
+│           ├── TournamentDetail.jsx      # Public per-tournament page with rounds + player list
 │           ├── Leaderboards.jsx
-│           ├── Leaderboard.jsx  # Round tabs, player drill-down
-│           ├── RoundScores.jsx  # Hole-by-hole + avg difficulty row
-│           ├── TournamentRecap.jsx # Champion, stats, shareable link
-│           ├── History.jsx      # Completed tournaments + recap links
-│           ├── Registrations.jsx
-│           ├── Scorecard.jsx    # Grid/stepper mode, badges, confirm, offline, conflict
-│           ├── Profile.jsx      # Handicap request, champion badges
+│           ├── Leaderboard.jsx           # Per-round tabs (single round), competition ranking
+│           ├── RoundScores.jsx           # Hole-by-hole + avg difficulty row
+│           ├── TournamentRecap.jsx       # Podium, stat cards, hole-in-ones, shareable link
+│           ├── History.jsx               # Completed tournaments + recap links
+│           ├── Courses.jsx               # Public course list
+│           ├── CourseDetail.jsx          # Course analytics: accordion + sortable compare
+│           ├── Registrations.jsx         # Current user's own registrations only
+│           ├── Scorecard.jsx             # Grid/stepper, badges, confirm, offline, conflict
+│           ├── Profile.jsx               # Email, phone, password, handicap, champion badges
 │           └── admin/
 │               ├── Dashboard.jsx          # Stat cards, tournament list
-│               ├── ManageTournament.jsx   # Full tournament admin
-│               ├── ManageCourses.jsx      # Bulk par entry, difficulty badges
-│               ├── ManageUsers.jsx        # Invite, roles, handicap requests
-│               └── AdminRoundScores.jsx
+│               ├── ManageTournament.jsx   # Full tournament admin; announce with status filter
+│               ├── ManageCourses.jsx      # Courses, holes, pars; analytics accordion + compare
+│               ├── ManageUsers.jsx        # Invite, roles, inline email edit, handicap requests
+│               └── AdminRoundScores.jsx   # Score grid; par row; missing scores indicator
 ├── .env.example
 ├── render.yaml
 └── CLAUDE.md
@@ -266,7 +275,7 @@ The scorecard is the core player experience. Key design decisions:
 
 **Pars and handicaps** are stored as slowly-changing dimensions (SCD). When a value changes, the old record gets an `active_to` date and a new record is inserted. The correct value for any tournament is resolved using the tournament's `start_date`.
 
-**`sheets.py`** is the only file in the codebase that knows it's talking to a spreadsheet. All routers call typed helper functions from `sheets.py`. If the database is ever swapped for PostgreSQL, only `sheets.py` needs to change.
+**`sheets.py`** is the only file in the codebase that knows it's talking to the database. All routers call typed helper functions from `sheets.py`. It also normalises all returned rows: Python `date`/`datetime` objects become ISO strings, and `None` becomes `""`. Downstream code must account for this.
 
 **`email_utils.py`** is the only file that sends email. All email flows (invites, password resets, registration status, handicap approval, announcements) call `email_utils.send_email()`. Email failures are non-blocking — the operation completes even if the email bounces.
 
