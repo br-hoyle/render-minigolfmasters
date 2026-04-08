@@ -47,7 +47,17 @@ export default function Leaderboard() {
             api.get(`/pars/`),
             api.get('/handicaps/'),
           ])
-        setData({ tournament, registrations, scores, users, rounds, pars, handicaps })
+
+        // Fetch holes for each unique course used in this tournament's rounds
+        const uniqueCourseIds = [...new Set(rounds.map((r) => r.course_id).filter(Boolean))]
+        const holesArrays = await Promise.all(
+          uniqueCourseIds.map((id) => api.get(`/courses/${id}/holes`))
+        )
+        const holeByCourseId = Object.fromEntries(
+          uniqueCourseIds.map((id, i) => [id, holesArrays[i]])
+        )
+
+        setData({ tournament, registrations, scores, users, rounds, pars, handicaps, holeByCourseId })
       } catch (err) {
         setError(err.message)
       } finally {
@@ -82,7 +92,7 @@ export default function Leaderboard() {
   if (error) return <div className="p-8 text-center text-[#CC0131]">{error}</div>
   if (!data) return null
 
-  const { tournament, registrations, scores, users, rounds, pars, handicaps } = data
+  const { tournament, registrations, scores, users, rounds, pars, handicaps, holeByCourseId } = data
 
   const sortedRounds = [...rounds].sort((a, b) => a.round_number - b.round_number)
 
@@ -185,6 +195,16 @@ export default function Leaderboard() {
   const positions = computePositions(rows)
 
   // Build drill-down data for a player (always shows all rounds regardless of tab)
+  function placeDisplay(i, row) {
+    if (row.forfeit) return ''
+    if (row.gross === 0) return '—'
+    if (i === 0) return '🥇'
+    if (i === 1) return '🥈'
+    if (i === 2) return '🥉'
+    return i + 1
+  }
+
+  // Build drill-down data for a player
   function buildDrillDown(userId, registrationId) {
     return sortedRounds.map((round) => {
       const holes = holesByRound[round.course_id] || []
@@ -324,6 +344,34 @@ export default function Leaderboard() {
                         <td className="px-4 py-3 text-xs w-6 text-center">
                           {row.forfeit ? '' : row.gross === 0 ? '—' : pos === 1 ? '🥇' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : <span className="text-gray-400">{pos}</span>}
                         </td>
+            {rows.length === 0 ? (
+              <p className="text-center py-6 text-gray-400 text-sm">No scores yet.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[#135D40] text-white text-xs">
+                    <th className="px-4 py-2 text-left font-semibold w-6">#</th>
+                    <th className="px-2 py-2 text-left font-semibold">Player</th>
+                    <th className="px-2 py-2 text-center font-semibold">+/-</th>
+                    <th className="px-4 py-2 text-right font-semibold">Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => {
+                    const isExpanded = expandedPlayer === row.user_id
+                    const drillDown = isExpanded ? buildDrillDown(row.user_id, row.registration_id) : []
+
+                    return (
+                      <>
+                        <tr
+                          key={row.user_id}
+                          className={`border-b border-[#E0E1E5] ${row.forfeit ? 'opacity-50' : ''} ${
+                            isExpanded ? 'bg-gray-50' : ''
+                          }`}
+                        >
+                          <td className="px-4 py-3 text-gray-400 text-xs w-6">
+                            {placeDisplay(i, row)}
+                          </td>
                           <td className="px-2 py-3 font-bold text-gray-900">
                             <button
                               onClick={() => handlePlayerClick(row.user_id, sortedRounds)}

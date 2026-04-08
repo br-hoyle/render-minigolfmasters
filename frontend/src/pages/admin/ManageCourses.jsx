@@ -302,6 +302,13 @@ export default function ManageCourses() {
                     </p>
                   </button>
                   <div className="flex items-center gap-3 shrink-0">
+                    <Link
+                      to={`/courses/${c.course_id}?tab=analytics`}
+                      className="text-xs font-bold text-gray-400 hover:text-forest hover:underline"
+                      title="View public analytics page"
+                    >
+                      ↗ Public
+                    </Link>
                     <button
                       onClick={() => {
                         setEditingCourseId(c.course_id)

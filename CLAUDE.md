@@ -258,6 +258,7 @@ Returns `True` on success, `False` on failure (non-blocking). Email flows:
 | View all tournaments / leaderboards / history / courses | ✅ | ✅ | ✅ | ✅ |
 | View tournament recap page | ✅ | ✅ | ✅ | ✅ |
 | View tournament detail page | ✅ | ✅ | ✅ | ✅ |
+| View courses list and course analytics | ✅ | ✅ | ✅ | ✅ |
 | Submit contact form | ✅ | ✅ | ✅ | ✅ |
 | Register for a tournament | ❌ | ✅ | ✅ | ✅ |
 | Submit / edit own scores (active, unlocked round) | ❌ | ✅ | ✅ | ✅ |
@@ -376,7 +377,7 @@ Public. Shows:
 | `/leaderboard/:tournamentId/round/:roundId` | Public | RoundScores |
 | `/history` | Public | History |
 | `/courses` | Public | Courses |
-| `/courses/:courseId` | Public | CourseDetail |
+| `/courses/:courseId` | Public | CourseDetail (description + analytics inline, `?hole=N` highlights a hole) |
 | `/registrations` | Player | Registrations (own only, even for admins) |
 | `/profile` | Player | Profile |
 | `/scorecard/:registrationId` | Player | Scorecard (round select) |

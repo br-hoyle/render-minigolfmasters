@@ -262,6 +262,8 @@ export default function RoundScores() {
                 </tr>
                 <tr className="bg-emerald">
                   <td className="text-left px-4 py-2 font-semibold text-gray-700 sticky left-0 bg-emerald">Par</td>
+                <tr className="bg-emerald/10">
+                  <td className="text-left px-4 py-2 font-semibold text-gray-700 sticky left-0 bg-[#e8f9f4]">Par</td>
                   {holes.map((h) => (
                     <td key={h.hole_id} className="text-center px-3 py-2 font-bold text-gray-800">
                       {parMap[h.hole_id] ?? '—'}

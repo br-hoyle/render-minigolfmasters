@@ -10,6 +10,11 @@ function fmtDate(d) {
   return `${m}/${day}/${y}`
 }
 
+function fmtDateTime(dt) {
+  if (!dt) return ''
+  return new Date(dt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
 const REG_FILTER_OPTIONS = ['All', 'Pending', 'Accepted', 'Waitlisted', 'Forfeit']
 
 const STATUS_PILL = {
@@ -539,6 +544,16 @@ export default function ManageTournament() {
         </div>
       </form>
 
+      {/* View Leaderboard link */}
+      {!isNew && (
+        <Link
+          to={`/leaderboard/${tournamentId}`}
+          className="block w-full text-center bg-forest border border-forest text-white font-semibold py-2.5 rounded-xl hover:bg-[#079E78] transition-colors text-sm"
+        >
+          View Leaderboard
+        </Link>
+      )}
+
       {/* Rounds + Registrations + Scores tabs */}
       {!isNew && (
         <section className="space-y-4">
@@ -926,6 +941,12 @@ export default function ManageTournament() {
                           </p>
                         )}
                       </div>
+                      <p className={`text-sm italic capitalize ${statusColor}`}>
+                        {reg.status === 'in_review' ? 'pending' : reg.status}
+                      </p>
+                      {reg.submitted_at && (
+                        <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(reg.submitted_at)}</p>
+                      )}
                     </div>
                     <div className="flex gap-2 shrink-0">
                       {reg.status === 'in_review' && (
