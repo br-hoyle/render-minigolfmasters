@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import Dialog from '../components/Dialog'
 import LoadingOverlay from '../components/LoadingOverlay'
+import { Spinner } from '../components/LoadingOverlay'
 
 function formatPhone(value) {
   const digits = value.replace(/\D/g, '').slice(0, 10)
@@ -13,15 +14,22 @@ function formatPhone(value) {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
 }
 
+function PencilIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 13l-4 1 1-4 9.293-9.293a1 1 0 011.414 0l2.586 2.586a1 1 0 010 1.414L9 13z" />
+    </svg>
+  )
+}
+
 export default function Profile() {
   useEffect(() => {
-    document.title = 'Profile | Mini Golf Masters'
+    document.title = 'My Account | Mini Golf Masters'
   }, [])
 
   const { user: authUser } = useAuth()
   const [profile, setProfile] = useState(null)
   const [handicap, setHandicap] = useState(null)
-  const [championships, setChampionships] = useState([])
   const [loading, setLoading] = useState(true)
 
   // Handicap request state
@@ -32,19 +40,20 @@ export default function Profile() {
   const [hcSuccess, setHcSuccess] = useState(false)
   const [hcError, setHcError] = useState(null)
 
-  // Email form
-  const [email, setEmail] = useState('')
+  // Inline email edit
+  const [editingEmail, setEditingEmail] = useState(false)
+  const [emailValue, setEmailValue] = useState('')
   const [savingEmail, setSavingEmail] = useState(false)
-  const [emailSaved, setEmailSaved] = useState(false)
   const [emailError, setEmailError] = useState(null)
 
-  // Phone form
-  const [phone, setPhone] = useState('')
+  // Inline phone edit
+  const [editingPhone, setEditingPhone] = useState(false)
+  const [phoneValue, setPhoneValue] = useState('')
   const [savingPhone, setSavingPhone] = useState(false)
-  const [phoneSaved, setPhoneSaved] = useState(false)
   const [phoneError, setPhoneError] = useState(null)
 
-  // Password form
+  // Reset password dialog
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -60,8 +69,8 @@ export default function Profile() {
         api.get('/handicap-requests/me').catch(() => []),
       ])
       setProfile(me)
-      setEmail(me.email || '')
-      setPhone(me.phone || '')
+      setEmailValue(me.email || '')
+      setPhoneValue(me.phone || '')
 
       if (authUser) {
         const userHandicaps = handicaps.filter(
@@ -72,9 +81,6 @@ export default function Profile() {
 
         const pending = hcRequests.find((r) => r.status === 'pending')
         setPendingRequest(pending || null)
-
-        // Fetch championships
-        api.get(`/users/${me.user_id}/championships`).then(setChampionships).catch(() => {})
       }
 
       setLoading(false)
@@ -105,16 +111,13 @@ export default function Profile() {
     }
   }
 
-  async function handleSaveEmail(e) {
-    e.preventDefault()
+  async function handleSaveEmail() {
     setSavingEmail(true)
     setEmailError(null)
-    setEmailSaved(false)
     try {
-      const updated = await api.patch('/users/me', { email })
+      const updated = await api.patch('/users/me', { email: emailValue })
       setProfile(updated)
-      setEmailSaved(true)
-      setTimeout(() => setEmailSaved(false), 3000)
+      setEditingEmail(false)
     } catch (err) {
       setEmailError(err.message || 'Failed to save')
     } finally {
@@ -122,16 +125,13 @@ export default function Profile() {
     }
   }
 
-  async function handleSavePhone(e) {
-    e.preventDefault()
+  async function handleSavePhone() {
     setSavingPhone(true)
     setPhoneError(null)
-    setPhoneSaved(false)
     try {
-      const updated = await api.patch('/users/me', { phone })
+      const updated = await api.patch('/users/me', { phone: phoneValue })
       setProfile(updated)
-      setPhoneSaved(true)
-      setTimeout(() => setPhoneSaved(false), 3000)
+      setEditingPhone(false)
     } catch (err) {
       setPhoneError(err.message || 'Failed to save')
     } finally {
@@ -161,7 +161,10 @@ export default function Profile() {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-      setTimeout(() => setPasswordSaved(false), 3000)
+      setTimeout(() => {
+        setPasswordSaved(false)
+        setResetPasswordOpen(false)
+      }, 1500)
     } catch (err) {
       setPasswordError(err.message || 'Failed to update password')
     } finally {
@@ -181,55 +184,136 @@ export default function Profile() {
         ← Home
       </Link>
       <div>
-        <h1 className="font-display font-black text-3xl text-gray-900">Profile</h1>
-        <p className="text-sm text-gray-500 mt-1">Your account details.</p>
+        <h1 className="font-display font-black text-3xl text-gray-900">My Account</h1>
+        <p className="text-sm text-gray-500 mt-1">Manage your info and security.</p>
       </div>
 
-      {/* Champion badges */}
-      {championships.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Championships</p>
-          <div className="flex flex-wrap gap-2">
-            {championships.map((c) => (
-              <span
-                key={c.tournament_id}
-                className="bg-[#FBF50D] text-gray-900 text-xs font-bold px-3 py-1.5 rounded-full"
-              >
-                {c.tournament_name}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Account info card */}
+      {/* Account Details Card */}
       <div className="bg-white rounded-xl border border-silver p-5 space-y-4">
-        <h2 className="font-display font-bold text-lg text-gray-900">Account Info</h2>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs font-semibold text-gray-500 mb-1">First Name</p>
-            <p className="text-sm font-bold text-gray-900">{profile.first_name}</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-gray-500 mb-1">Last Name</p>
-            <p className="text-sm font-bold text-gray-900">{profile.last_name}</p>
-          </div>
+        <div className="flex items-center justify-between">
+          <h2 className="font-display font-bold text-lg text-gray-900">Account Details</h2>
+          <button
+            onClick={() => {
+              setResetPasswordOpen(true)
+              setPasswordError(null)
+              setPasswordSaved(false)
+            }}
+            className="text-xs font-semibold text-forest border border-forest px-3 py-1.5 rounded-full hover:bg-forest hover:text-white transition-colors"
+          >
+            Reset Password
+          </button>
         </div>
 
-        <div>
-          <p className="text-xs font-semibold text-gray-500 mb-1">Email</p>
-          <p className="text-sm text-gray-700">{profile.email}</p>
+        {/* First Name */}
+        <div className="grid grid-cols-[7rem_1fr] items-center gap-2">
+          <p className="text-xs font-semibold text-gray-500">First Name</p>
+          <p className="text-sm font-bold text-gray-900">{profile.first_name}</p>
         </div>
 
-        <div>
-          <p className="text-xs font-semibold text-gray-500 mb-1">Role</p>
+        {/* Last Name */}
+        <div className="grid grid-cols-[7rem_1fr] items-center gap-2">
+          <p className="text-xs font-semibold text-gray-500">Last Name</p>
+          <p className="text-sm font-bold text-gray-900">{profile.last_name}</p>
+        </div>
+
+        {/* Email */}
+        <div className="grid grid-cols-[7rem_1fr] items-start gap-2">
+          <p className="text-xs font-semibold text-gray-500 mt-1">Email</p>
+          {editingEmail ? (
+            <div className="space-y-1">
+              <input
+                type="email"
+                value={emailValue}
+                onChange={(e) => setEmailValue(e.target.value)}
+                autoFocus
+                className="w-full border border-silver rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+              />
+              {emailError && <p className="text-[#CC0131] text-xs">{emailError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveEmail}
+                  disabled={savingEmail || emailValue === profile.email}
+                  className="text-xs font-semibold bg-forest text-white px-3 py-1 rounded-full disabled:opacity-60 hover:bg-emerald transition-colors flex items-center gap-1"
+                >
+                  {savingEmail ? <Spinner /> : null}
+                  Save
+                </button>
+                <button
+                  onClick={() => { setEditingEmail(false); setEmailValue(profile.email || ''); setEmailError(null) }}
+                  className="text-xs font-semibold text-gray-500 px-3 py-1 rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-gray-700">{profile.email}</p>
+              <button
+                onClick={() => setEditingEmail(true)}
+                className="text-gray-400 hover:text-forest transition-colors"
+                aria-label="Edit email"
+              >
+                <PencilIcon />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Phone */}
+        <div className="grid grid-cols-[7rem_1fr] items-start gap-2">
+          <p className="text-xs font-semibold text-gray-500 mt-1">Phone</p>
+          {editingPhone ? (
+            <div className="space-y-1">
+              <input
+                type="tel"
+                value={phoneValue}
+                onChange={(e) => setPhoneValue(formatPhone(e.target.value))}
+                autoFocus
+                placeholder="(555) 555-5555"
+                className="w-full border border-silver rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+              />
+              {phoneError && <p className="text-[#CC0131] text-xs">{phoneError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSavePhone}
+                  disabled={savingPhone}
+                  className="text-xs font-semibold bg-forest text-white px-3 py-1 rounded-full disabled:opacity-60 hover:bg-emerald transition-colors flex items-center gap-1"
+                >
+                  {savingPhone ? <Spinner /> : null}
+                  Save
+                </button>
+                <button
+                  onClick={() => { setEditingPhone(false); setPhoneValue(profile.phone || ''); setPhoneError(null) }}
+                  className="text-xs font-semibold text-gray-500 px-3 py-1 rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-gray-700">{profile.phone || <span className="text-gray-400 italic">Not set</span>}</p>
+              <button
+                onClick={() => setEditingPhone(true)}
+                className="text-gray-400 hover:text-forest transition-colors"
+                aria-label="Edit phone"
+              >
+                <PencilIcon />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Role */}
+        <div className="grid grid-cols-[7rem_1fr] items-center gap-2">
+          <p className="text-xs font-semibold text-gray-500">Role</p>
           <p className="text-sm capitalize text-gray-700">{profile.role}</p>
         </div>
 
-        {/* Handicap + Request Review */}
-        <div>
-          <p className="text-xs font-semibold text-gray-500 mb-1">Handicap</p>
+        {/* Handicap */}
+        <div className="grid grid-cols-[7rem_1fr] items-center gap-2">
+          <p className="text-xs font-semibold text-gray-500">Handicap</p>
           <div className="flex items-center gap-3">
             <p className="text-sm text-gray-700">
               {handicap ? `${handicap.strokes} stroke${Number(handicap.strokes) !== 1 ? 's' : ''}` : 'None'}
@@ -250,105 +334,70 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Email edit card */}
-      <form onSubmit={handleSaveEmail} className="bg-white rounded-xl border border-silver p-5 space-y-4">
-        <h2 className="font-display font-bold text-lg text-gray-900">Email Address</h2>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-          />
-        </div>
-        {emailError && <p className="text-[#CC0131] text-sm">{emailError}</p>}
-        {emailSaved && <p className="text-emerald text-sm font-semibold">Email saved!</p>}
-        <button
-          type="submit"
-          disabled={savingEmail || email === profile?.email}
-          className="w-full bg-forest text-white font-semibold py-3 rounded-xl hover:bg-emerald transition-colors disabled:opacity-60 text-sm"
-        >
-          {savingEmail ? 'Saving…' : 'Save Email'}
-        </button>
-      </form>
+      {/* View public profile link */}
+      <p className="text-xs text-center text-gray-400">
+        <Link to={`/players/${profile.user_id}`} className="text-forest hover:underline font-medium">
+          View your public profile →
+        </Link>
+      </p>
 
-      {/* Phone edit card */}
-      <form onSubmit={handleSavePhone} className="bg-white rounded-xl border border-silver p-5 space-y-4">
-        <h2 className="font-display font-bold text-lg text-gray-900">Phone Number</h2>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-          <input
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(formatPhone(e.target.value))}
-            placeholder="(555) 555-5555"
-            className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-          />
-        </div>
-        {phoneError && <p className="text-[#CC0131] text-sm">{phoneError}</p>}
-        {phoneSaved && <p className="text-emerald text-sm font-semibold">Phone saved!</p>}
-        <button
-          type="submit"
-          disabled={savingPhone}
-          className="w-full bg-forest text-white font-semibold py-3 rounded-xl hover:bg-emerald transition-colors disabled:opacity-60 text-sm"
-        >
-          {savingPhone ? 'Saving…' : 'Save Phone'}
-        </button>
-      </form>
-
-      {/* Change password card */}
-      <form onSubmit={handleSavePassword} className="bg-white rounded-xl border border-silver p-5 space-y-4">
-        <h2 className="font-display font-bold text-lg text-gray-900">Change Password</h2>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
-          <input
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-            className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-          />
-        </div>
-
-        {passwordError && <p className="text-[#CC0131] text-sm">{passwordError}</p>}
-        {passwordSaved && <p className="text-emerald text-sm font-semibold">Password updated!</p>}
-
-        <button
-          type="submit"
-          disabled={savingPassword}
-          className="w-full bg-forest text-white font-semibold py-3 rounded-xl hover:bg-emerald transition-colors disabled:opacity-60 text-sm"
-        >
-          {savingPassword ? 'Saving…' : 'Update Password'}
-        </button>
-      </form>
+      {/* Reset Password Dialog */}
+      <Dialog
+        open={resetPasswordOpen}
+        onClose={() => { setResetPasswordOpen(false); setPasswordError(null); setPasswordSaved(false) }}
+        title="Reset Password"
+      >
+        {passwordSaved ? (
+          <div className="text-center space-y-4">
+            <p className="text-[#079E78] font-bold text-lg">Password updated!</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSavePassword} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="w-full border border-silver rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                className="w-full border border-silver rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+                className="w-full border border-silver rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+              />
+            </div>
+            {passwordError && <p className="text-[#CC0131] text-sm">{passwordError}</p>}
+            <button
+              type="submit"
+              disabled={savingPassword}
+              className="w-full bg-forest text-white font-semibold py-3 rounded-xl text-sm disabled:opacity-60 hover:bg-emerald transition-colors flex items-center justify-center gap-2"
+            >
+              {savingPassword && <Spinner />}
+              {savingPassword ? 'Saving…' : 'Update Password'}
+            </button>
+          </form>
+        )}
+      </Dialog>
 
       {/* Handicap Request Dialog */}
       <Dialog

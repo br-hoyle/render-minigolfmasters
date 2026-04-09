@@ -37,7 +37,8 @@ render-minigolfmasters/
 │   │
 │   ├── routers/
 │   │   ├── auth.py              # POST /login, POST /accept-invite, POST /reset-password, POST /reset-password-by-token
-│   │   ├── users.py             # GET/POST /users, POST /users/invite, PATCH /users/me, GET /users/{id}/championships
+│   │   ├── users.py             # GET/POST /users, POST /users/invite, PATCH /users/me, GET /users/{id}/championships,
+│   │   │                        # GET /users/public, GET /users/public/{id}, GET /users/{id}/stats
 │   │   ├── tournaments.py       # GET/POST /tournaments, GET /tournaments/{id}, GET /tournaments/{id}/recap,
 │   │   │                        # POST /tournaments/{id}/announce, GET /tournaments/admin/stats
 │   │   ├── registrations.py     # GET/POST /registrations, PATCH /registrations/{id}, PATCH /registrations/bulk
@@ -111,7 +112,9 @@ render-minigolfmasters/
 │   │   │   ├── CourseDetail.jsx         # Course info + analytics accordion (By Hole tab) + sortable Compare tab
 │   │   │   ├── Registrations.jsx        # Shows only the current user's registrations (filtered client-side)
 │   │   │   ├── Scorecard.jsx            # Stepper + grid modes, par badges, confirm, offline, conflict dialog
-│   │   │   ├── Profile.jsx              # Email (editable), phone, password, handicap request, champion badges
+│   │   │   ├── Profile.jsx              # My Account — unified card: inline email/phone edit, Reset Password dialog, handicap
+│   │   │   ├── Players.jsx              # Public alphabetical player list, paginated 10/25/50
+│   │   │   ├── PlayerStats.jsx          # Public player stats page — donut charts, stat grid, tournament history
 │   │   │   └── admin/
 │   │   │       ├── Dashboard.jsx            # Stat cards + tournament list
 │   │   │       ├── ManageTournament.jsx     # Full tournament admin (rounds, lock, regs, bulk, scores, audit, announce)
@@ -377,8 +380,10 @@ Public. Shows:
 | `/history` | Public | History |
 | `/courses` | Public | Courses |
 | `/courses/:courseId` | Public | CourseDetail |
+| `/players` | Public | Players (alphabetical list, paginated) |
+| `/players/:userId` | Public | PlayerStats (stats grid, donut charts, tournament history) |
 | `/registrations` | Player | Registrations (own only, even for admins) |
-| `/profile` | Player | Profile |
+| `/profile` | Player | Profile (My Account) |
 | `/scorecard/:registrationId` | Player | Scorecard (round select) |
 | `/scorecard/:registrationId/:roundId` | Player | Scorecard (score entry) |
 | `/admin` | Admin | Dashboard |
@@ -418,10 +423,24 @@ Public. Shows:
 - **Par row** uses `active_to === '9999-12-31'` filter (currently active pars), not SCD date filtering — pars are often set after the tournament start date.
 - **Missing scores indicator** — banner shows which players are missing scores for which holes.
 
-### Profile (`/profile`)
-- View account info; **email** (inline editable, no verification), phone (editable), password (changeable).
-- **Champion badges** — fetched from `GET /users/{user_id}/championships`, shown as yellow pill badges.
+### My Account (`/profile`)
+- **Unified Account Details card** — shows first/last name (read-only), email (inline ✏️ edit), phone (inline ✏️ edit), role, and handicap in a single card. No separate form sections.
+- **Reset Password** button in the card header → opens a `<Dialog>` with current password + new password + confirm fields. Validates match + min 8 chars. Success message closes dialog after 1.5s.
+- **View public profile** link beneath the card → `/players/:userId`.
 - **Handicap display** with "Request Review" button → dialog (suggested strokes + message) → `POST /handicap-requests/`. If a pending request exists, shows "Review pending" instead.
+- Champion badges section removed (visible on public PlayerStats page instead).
+
+### Players (`/players`)
+- Public alphabetical list of all active users (fetched from `GET /users/public`), sorted by last name then first name.
+- Pagination controls: 10 / 25 / 50 per page pills (default 25). "Showing X–Y of Z players" summary.
+- Each row links to `/players/:userId`.
+
+### Player Stats (`/players/:userId`)
+- Public. Fetches `GET /users/public/{userId}` (name) + `GET /users/{userId}/stats` in parallel.
+- **Stats grid** (2-column): Tournaments, Rounds Played, Best Finish, Handicap, Lowest Round vs Par, Highest Round vs Par, Rounds Under Par, Scoring Avg vs Par, Hole-in-Ones, First Season.
+- **Champion badges** (yellow pills) if any championships.
+- **Scoring Breakdown section**: Large SVG donut — Eagle+/Birdie/Par/Bogey/Double+ color segments; small "vs Field" donut comparing player avg to field avg. No external chart library — pure SVG with strokeDasharray segments.
+- **Tournament History table**: Tournament name, year, finish (medal emoji for top 3), net score.
 
 ---
 
@@ -446,7 +465,9 @@ Public. Shows:
 | Registrations | `Registrations \| Mini Golf Masters` |
 | Select Round | `Select Round \| Mini Golf Masters` |
 | Scorecard | `Scorecard \| Mini Golf Masters` |
-| Profile | `Profile \| Mini Golf Masters` |
+| My Account | `My Account \| Mini Golf Masters` |
+| Players | `Players \| Mini Golf Masters` |
+| Player Stats | `{First} {Last} \| Mini Golf Masters` |
 | Admin Dashboard | `Admin \| Mini Golf Masters` |
 | Manage Tournament | `Manage Tournament \| Mini Golf Masters` |
 | Manage Courses | `Manage Courses \| Mini Golf Masters` |

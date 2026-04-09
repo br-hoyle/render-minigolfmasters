@@ -76,6 +76,9 @@ export default function Layout() {
                   <Link to="/courses" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
                     Courses
                   </Link>
+                  <Link to="/players" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
+                    Players
+                  </Link>
                   <Link to="/contact" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
                     Contact Us
                   </Link>
@@ -86,7 +89,7 @@ export default function Layout() {
                   )}
                   {user && (
                     <Link to="/profile" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
-                      Profile
+                      My Account
                     </Link>
                   )}
                   {user?.role === 'admin' && (

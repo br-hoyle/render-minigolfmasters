@@ -47,7 +47,9 @@ Built to run for free. Designed to last for years.
 ### Handicap System
 - **Handicap requests** — players can request a handicap review with a suggested stroke count and message
 - **Admin approval** — admins approve or reject requests from the Manage Users page; approval runs the SCD logic automatically
-- **Champion badges** — completed tournament wins shown on the player's profile page
+- **Champion badges** — completed tournament wins shown on the player's public stats page
+- **Public Players page** — alphabetical directory of all active players, paginated 10/25/50, each linking to their stats page
+- **Player stats page** — public per-player stats: best finish, tournaments, rounds played, lowest/highest round vs par, scoring avg, birdies/bogeys/aces, donut charts (scoring distribution + vs field comparison), tournament history table
 
 ### Infrastructure & Reliability
 - **Centralized email utility** — single `email_utils.send_email()` used across all email-sending flows
@@ -55,7 +57,7 @@ Built to run for free. Designed to last for years.
 - **Score audit log** — immutable record of every admin override
 - **Invite-only accounts** — players are invited by email; no open registration. Admin can update a pending user's email to resend the invite to a new address.
 - **Role-based access** — players, tournament admins, and global admins each have distinct permissions
-- **User profiles** — players can update their email (immediate, no verification), phone, and password
+- **My Account page** — redesigned: unified card with inline email/phone edit and Reset Password dialog; links to public player profile
 - **Loading states** — consistent full-screen `LoadingOverlay` and inline `Spinner` components used throughout
 - **Contact form** — public inquiry form delivered directly to organizers by email
 
@@ -87,7 +89,7 @@ render-minigolfmasters/
 │   ├── dependencies.py          # FastAPI dependencies (get_current_user, require_admin, etc.)
 │   ├── routers/
 │   │   ├── auth.py              # Login, accept-invite, reset-password
-│   │   ├── users.py             # Users, invites, email update, championships
+│   │   ├── users.py             # Users, invites, email update, championships, public/{id}, /{id}/stats
 │   │   ├── tournaments.py       # Tournaments, rich recap, announce (status filter), admin stats
 │   │   ├── registrations.py     # Registrations, waitlist, bulk actions
 │   │   ├── rounds.py            # Rounds, lock/unlock
@@ -137,7 +139,9 @@ render-minigolfmasters/
 │           ├── CourseDetail.jsx          # Course analytics: accordion + sortable compare
 │           ├── Registrations.jsx         # Current user's own registrations only
 │           ├── Scorecard.jsx             # Grid/stepper, badges, confirm, offline, conflict
-│           ├── Profile.jsx               # Email, phone, password, handicap, champion badges
+│           ├── Profile.jsx               # My Account — unified card, inline edit, reset password dialog
+│           ├── Players.jsx               # Public alphabetical player list, paginated
+│           ├── PlayerStats.jsx           # Public player stats + donut charts + tournament history
 │           └── admin/
 │               ├── Dashboard.jsx          # Stat cards, tournament list
 │               ├── ManageTournament.jsx   # Full tournament admin; announce with status filter

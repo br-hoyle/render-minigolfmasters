@@ -20,6 +20,8 @@ import TournamentRecap from './pages/TournamentRecap'
 import TournamentDetail from './pages/TournamentDetail'
 import Courses from './pages/Courses'
 import CourseDetail from './pages/CourseDetail'
+import Players from './pages/Players'
+import PlayerStats from './pages/PlayerStats'
 
 import Dashboard from './pages/admin/Dashboard'
 import ManageTournament from './pages/admin/ManageTournament'
@@ -49,6 +51,8 @@ export default function App() {
             <Route path="/history" element={<History />} />
             <Route path="/courses" element={<Courses />} />
             <Route path="/courses/:courseId" element={<CourseDetail />} />
+            <Route path="/players" element={<Players />} />
+            <Route path="/players/:userId" element={<PlayerStats />} />
 
             {/* Player */}
             <Route element={<ProtectedRoute />}>
