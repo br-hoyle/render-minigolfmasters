@@ -2,7 +2,6 @@ import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import Banner from '../components/Banner'
 import LoadingOverlay from '../components/LoadingOverlay'
 
 function fmtDate(d) {
@@ -100,24 +99,17 @@ export default function Registrations() {
 
   return (
     <div>
-      <Banner />
       <div className="max-w-lg mx-auto px-4 py-8 space-y-8">
         <Link to="/" className="text-forest font-semibold text-sm hover:underline block">
           ← Home
         </Link>
         <div>
-          <h1 className="font-display font-black text-3xl text-gray-900">Registrations</h1>
+          <h1 className="font-display font-black text-3xl text-gray-900">My Registrations</h1>
           <p className="text-sm text-gray-500 mt-1">The Field Is Set. Are You In?</p>
         </div>
 
         {/* My Registrations */}
         <section className="space-y-3">
-          <div>
-            <h2 className="font-display font-bold text-xl text-gray-900">My Registrations</h2>
-            <p className="text-xs text-gray-500 italic mt-0.5">
-              Your name is on the list. Get ready to putt.
-            </p>
-          </div>
 
           {/* Filter pills */}
           <div className="flex gap-2 flex-wrap">

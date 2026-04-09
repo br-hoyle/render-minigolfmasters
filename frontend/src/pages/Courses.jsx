@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import Banner from '../components/Banner'
 import LoadingOverlay from '../components/LoadingOverlay'
 
 export default function Courses() {
@@ -23,6 +24,8 @@ export default function Courses() {
   if (error) return <div className="p-8 text-center text-[#CC0131]">{error}</div>
 
   return (
+    <div>
+      <Banner />
     <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
       <Link to="/" className="text-forest font-semibold text-sm hover:underline block">
         ← Home
@@ -57,5 +60,6 @@ export default function Courses() {
         </div>
       )}
     </div>
+  </div>
   )
 }

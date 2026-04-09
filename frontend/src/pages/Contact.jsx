@@ -41,7 +41,7 @@ export default function Contact() {
         </Link>
         <h1 className="font-display font-bold text-3xl text-left text-gray-900">Contact Us</h1>
         <p className="text-sm text-gray-500 text-left mt-2 mb-8">
-          We Built This Thing With Love. Tell Us What You Think — Unless it's a complaint About a Score From 2019.
+          We built this thing with love. Tell us what you think - unless it's a complaint about a score from 2024.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -70,9 +70,7 @@ export default function Contact() {
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-gray-800 mb-1">
-              Phone <span className="font-normal text-gray-400">[Optional]</span>
-            </label>
+            <label className="block text-sm font-bold text-gray-800 mb-1">Phone</label>
             <input
               type="tel"
               name="phone"
