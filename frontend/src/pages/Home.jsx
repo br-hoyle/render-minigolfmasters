@@ -27,10 +27,10 @@ export default function Home() {
             Live scores. Real handicaps. No paper scorecards. <br></br>No excuses.
           </p>
           <Link
-            to="/tournaments"
+            to="/tournaments?filter=Upcoming"
             className="inline-block bg-forest text-white font-semibold px-8 py-3 rounded-full mt-6 hover:bg-emerald transition-colors"
           >
-            View Tournaments
+            View Upcoming Tournaments
           </Link>
         </div>
       </section>

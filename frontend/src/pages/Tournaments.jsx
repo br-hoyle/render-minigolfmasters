@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import Banner from '../components/Banner'
@@ -40,7 +40,12 @@ export default function Tournaments() {
   const [myRegs, setMyRegs] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('All')
+  const { search: locationSearch } = useLocation()
+  const initialFilter = useMemo(() => {
+    const param = new URLSearchParams(locationSearch).get('filter') || ''
+    return FILTER_OPTIONS.includes(param) ? param : 'All'
+  }, [locationSearch])
+  const [filter, setFilter] = useState(initialFilter)
 
   useEffect(() => {
     async function load() {
