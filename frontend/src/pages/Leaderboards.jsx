@@ -72,7 +72,7 @@ export default function Leaderboards() {
         <div>
           <h1 className="font-display font-black text-3xl text-gray-900">Leaderboards</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Your score. Their score. The score you're not going to talk about. All right here.
+            Your score. Their score. The score you're not talking about. All right here.
           </p>
         </div>
 

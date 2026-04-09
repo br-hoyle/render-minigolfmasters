@@ -13,8 +13,7 @@ import Registrations from './pages/Registrations'
 import Scorecard from './pages/Scorecard'
 import Leaderboard from './pages/Leaderboard'
 import RoundScores from './pages/RoundScores'
-import History from './pages/History'
-import Profile from './pages/Profile'
+import Account from './pages/Account'
 import ResetPassword from './pages/ResetPassword'
 import TournamentRecap from './pages/TournamentRecap'
 import TournamentDetail from './pages/TournamentDetail'
@@ -48,7 +47,6 @@ export default function App() {
             <Route path="/leaderboard/:tournamentId/round/:roundId" element={<RoundScores />} />
             <Route path="/tournaments/:tournamentId" element={<TournamentDetail />} />
             <Route path="/tournaments/:tournamentId/recap" element={<TournamentRecap />} />
-            <Route path="/history" element={<History />} />
             <Route path="/courses" element={<Courses />} />
             <Route path="/courses/:courseId" element={<CourseDetail />} />
             <Route path="/players" element={<Players />} />
@@ -57,7 +55,7 @@ export default function App() {
             {/* Player */}
             <Route element={<ProtectedRoute />}>
               <Route path="/registrations" element={<Registrations />} />
-              <Route path="/profile" element={<Profile />} />
+              <Route path="/account" element={<Account />} />
               <Route path="/scorecard/:registrationId" element={<Scorecard />} />
               <Route path="/scorecard/:registrationId/:roundId" element={<Scorecard />} />
             </Route>

@@ -94,7 +94,7 @@ export default function Tournaments() {
         </Link>
         <div>
           <h1 className="font-display font-black text-3xl text-gray-900">Tournaments</h1>
-          <p className="text-sm text-gray-500 mt-1">The full schedule — every tee time, every trophy, every grudge match.</p>
+          <p className="text-sm text-gray-500 mt-1">The full schedule — every tee time, trophy, and every grudge match.</p>
         </div>
 
         {/* Search */}

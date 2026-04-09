@@ -24,7 +24,7 @@ export default function Home() {
             The Tournament Experience Your Mini Golf League Deserves
           </h1>
           <p className="text-sm text-gray-500 mt-2">
-            Live scores. Real handicaps. No paper scorecards. <br></br>No excuses.
+            Live scores. No paper scorecards. No excuses.
           </p>
           <Link
             to="/tournaments?filter=Upcoming"
@@ -39,7 +39,7 @@ export default function Home() {
       <section className="bg-white py-12">
         <div className="max-w-lg mx-auto px-6 text-center">
           <blockquote className="italic text-gray-600 text-sm">
-            "A tradition not unlike no other thing that has ever come before or beyond in any way, shape or form - ever."
+            "A tradition not unlike no other thing that has ever come before or beyond in any way, shape or form."
           </blockquote>
           <cite className="block text-sm text-gray-400 mt-2 not-italic">
             - Lansing Brown, Founder & Commissioner
