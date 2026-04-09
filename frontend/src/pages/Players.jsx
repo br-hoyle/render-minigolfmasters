@@ -77,26 +77,33 @@ export default function Players() {
           <h1 className="font-display font-black text-3xl text-gray-900">Players</h1>
           <p className="text-sm text-gray-500 mt-1">The Mini Golf Masters community.</p>
         </div>
+        
+        {/* Container */}
+        <div className="flex items-center justify-between w-full flex-wrap gap-2">
+          
+          {/* Left: Per-page pills */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-xs font-semibold text-gray-500 mr-1">
+              Per page:
+            </span>
+            {PAGE_SIZES.map((size) => (
+              <FilterPill
+                key={size}
+                label={String(size)}
+                active={pageSize === size}
+                onClick={() => handlePageSizeChange(size)}
+              />
+            ))}
+          </div>
 
-        {/* Per-page pills */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-semibold text-gray-500 mr-1">Per page:</span>
-          {PAGE_SIZES.map((size) => (
-            <FilterPill
-              key={size}
-              label={String(size)}
-              active={pageSize === size}
-              onClick={() => handlePageSizeChange(size)}
-            />
-          ))}
+          {/* Right: Showing text */}
+          {players.length > 0 && (
+            <p className="text-xs text-gray-400 text-right">
+              Showing {startIndex + 1}–{endIndex} of {players.length} players
+            </p>
+          )}
+
         </div>
-
-        {/* Count summary */}
-        {players.length > 0 && (
-          <p className="text-xs text-gray-400">
-            Showing {startIndex + 1}–{endIndex} of {players.length} players
-          </p>
-        )}
 
         {/* Player list */}
         <div className="divide-y divide-silver rounded-xl border border-silver overflow-hidden">

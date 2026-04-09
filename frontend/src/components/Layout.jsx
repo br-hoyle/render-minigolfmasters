@@ -88,7 +88,7 @@ export default function Layout() {
                     </Link>
                   )}
                   {user && (
-                    <Link to="/profile" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
+                    <Link to="/account" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
                       My Account
                     </Link>
                   )}

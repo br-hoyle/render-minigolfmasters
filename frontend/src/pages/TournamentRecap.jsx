@@ -124,7 +124,6 @@ export default function TournamentRecap() {
             <p className="text-xs text-gray-500 font-semibold mt-0.5">Hardest Hole</p>
             <p className="text-xs text-gray-400">
               avg {hardest_hole.avg_vs_par > 0 ? '+' : ''}{hardest_hole.avg_vs_par?.toFixed(1)} vs par
-              {hardest_hole.course_name && ` · ${hardest_hole.course_name}`}
               {hardest_hole.round_label && ` · ${hardest_hole.round_label}`}
             </p>
           </div>
@@ -142,7 +141,6 @@ export default function TournamentRecap() {
                 </span>
               )}
               {' · '}{best_round.round_label}
-              {best_round.course_name && ` · ${best_round.course_name}`}
             </p>
           </div>
         )}
