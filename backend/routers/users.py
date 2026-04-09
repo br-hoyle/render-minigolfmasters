@@ -275,6 +275,7 @@ def get_user_stats(user_id: str):
     lowest_round_vs_par = None
     highest_round_vs_par = None
     rounds_under_par = 0
+    round_vs_par_values = []
 
     for reg in accepted_regs:
         reg_scores = [s for s in all_scores if s["registration_id"] == reg["registration_id"]]
@@ -291,12 +292,15 @@ def get_user_stats(user_id: str):
             if round_par == 0 or total == 0:
                 continue
             vs_par = total - round_par
+            round_vs_par_values.append(vs_par)
             if lowest_round_vs_par is None or vs_par < lowest_round_vs_par:
                 lowest_round_vs_par = vs_par
             if highest_round_vs_par is None or vs_par > highest_round_vs_par:
                 highest_round_vs_par = vs_par
             if vs_par < 0:
                 rounds_under_par += 1
+
+    avg_round_vs_par = round(sum(round_vs_par_values) / len(round_vs_par_values), 1) if round_vs_par_values else None
 
     # Hole-in-ones
     hole_in_ones = sum(1 for s in user_scores if int(s["strokes"]) == 1)
@@ -383,31 +387,48 @@ def get_user_stats(user_id: str):
 
     tournament_history.sort(key=lambda x: x["year"], reverse=True)
 
-    # Field avg vs par (all scores in same tournaments this user played)
+    # Field distribution (all scores in same tournaments this user played)
     field_tournament_ids = {reg["tournament_id"] for reg in accepted_regs}
     field_reg_ids = {r["registration_id"] for r in all_reg_all
                      if r["tournament_id"] in field_tournament_ids and r["status"] in ("accepted", "forfeit")}
-    field_diffs = [
-        int(s["strokes"]) - par_map[s["hole_id"]]
-        for s in all_scores
-        if s["registration_id"] in field_reg_ids and s["hole_id"] in par_map
-    ]
-    field_avg_vs_par = round(sum(field_diffs) / len(field_diffs), 2) if field_diffs else None
+
+    field_dist: dict = {"eagle_or_better": 0, "birdie": 0, "par": 0, "bogey": 0, "double_plus": 0, "total": 0}
+    field_total_vs_par = 0.0
+    for s in all_scores:
+        if s["registration_id"] not in field_reg_ids or s["hole_id"] not in par_map:
+            continue
+        p = par_map[s["hole_id"]]
+        diff = int(s["strokes"]) - p
+        field_dist["total"] += 1
+        field_total_vs_par += diff
+        if diff <= -2:
+            field_dist["eagle_or_better"] += 1
+        elif diff == -1:
+            field_dist["birdie"] += 1
+        elif diff == 0:
+            field_dist["par"] += 1
+        elif diff == 1:
+            field_dist["bogey"] += 1
+        else:
+            field_dist["double_plus"] += 1
+
+    field_avg_vs_par = round(field_total_vs_par / field_dist["total"], 2) if field_dist["total"] > 0 else None
 
     return {
         "user_id": user_id,
         "tournaments_entered": tournaments_entered,
         "rounds_played": rounds_played,
+        "total_holes_played": scored_holes,
         "best_finish": best_finish,
         "lowest_round_vs_par": lowest_round_vs_par,
         "highest_round_vs_par": highest_round_vs_par,
+        "avg_round_vs_par": avg_round_vs_par,
         "rounds_under_par": rounds_under_par,
         "scoring_avg_vs_par": scoring_avg_vs_par,
         "current_handicap": current_handicap,
-        "first_tournament_date": first_tournament_date,
-        "last_tournament_date": last_tournament_date,
         "hole_in_ones": hole_in_ones,
         "scoring_distribution": scoring_distribution,
+        "field_scoring_distribution": field_dist,
         "field_avg_vs_par": field_avg_vs_par,
         "championships": championships,
         "tournament_history": tournament_history,

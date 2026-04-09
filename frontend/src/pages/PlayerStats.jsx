@@ -3,153 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { api } from '../api/client'
 import LoadingOverlay from '../components/LoadingOverlay'
 
-// ─── SVG Donut Chart ─────────────────────────────────────────────────────────
-
-const DONUT_R = 38
-const DONUT_CX = 50
-const DONUT_CY = 50
-const STROKE_WIDTH = 14
-const CIRCUMFERENCE = 2 * Math.PI * DONUT_R
-
-function DonutSegments({ segments }) {
-  // segments: [{ pct, color }]  where pct is 0..1
-  let offset = 0
-  // Start from the top (rotate -90deg on the group)
-  return (
-    <g transform={`rotate(-90 ${DONUT_CX} ${DONUT_CY})`}>
-      {segments.map((seg, i) => {
-        const dash = seg.pct * CIRCUMFERENCE
-        const gap = CIRCUMFERENCE - dash
-        const rotate = offset * 360
-        offset += seg.pct
-        return (
-          <circle
-            key={i}
-            cx={DONUT_CX}
-            cy={DONUT_CY}
-            r={DONUT_R}
-            fill="none"
-            stroke={seg.color}
-            strokeWidth={STROKE_WIDTH}
-            strokeDasharray={`${dash} ${gap}`}
-            strokeDashoffset={-(offset - seg.pct) * CIRCUMFERENCE}
-            style={{ transform: `rotate(${rotate}deg)`, transformOrigin: `${DONUT_CX}px ${DONUT_CY}px` }}
-          />
-        )
-      })}
-    </g>
-  )
-}
-
-function ScoringDonut({ distribution }) {
-  const total = distribution?.total || 0
-  if (total === 0) return <p className="text-gray-400 text-sm text-center py-8">No scored holes yet.</p>
-
-  const { eagle_or_better, birdie, par, bogey, double_plus } = distribution
-  const segments = [
-    { label: 'Eagle+', count: eagle_or_better, color: '#079E78', pct: eagle_or_better / total },
-    { label: 'Birdie', count: birdie, color: '#135D40', pct: birdie / total },
-    { label: 'Par', count: par, color: '#E0E1E5', pct: par / total },
-    { label: 'Bogey', count: bogey, color: '#F59E0B', pct: bogey / total },
-    { label: 'Double+', count: double_plus, color: '#CC0131', pct: double_plus / total },
-  ].filter((s) => s.count > 0)
-
-  return (
-    <div className="flex flex-col items-center gap-4">
-      <div className="relative w-40 h-40">
-        <svg viewBox="0 0 100 100" className="w-full h-full">
-          {/* Background track */}
-          <circle
-            cx={DONUT_CX} cy={DONUT_CY} r={DONUT_R}
-            fill="none" stroke="#F3F4EE" strokeWidth={STROKE_WIDTH}
-          />
-          <DonutSegments segments={segments} />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-xs font-semibold text-gray-500">Scoring</span>
-          <span className="text-xs font-bold text-gray-700">Mix</span>
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs w-full max-w-[16rem]">
-        {segments.map((s) => (
-          <div key={s.label} className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-            <span className="text-gray-600 font-medium">{s.label}</span>
-            <span className="text-gray-400 ml-auto">{Math.round(s.pct * 100)}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function VsFieldDonut({ playerAvg, fieldAvg }) {
-  if (playerAvg == null || fieldAvg == null) return null
-
-  // Visualize relative to ±5 scale; clamp to keep chart readable
-  const MAX = 5
-  const clamp = (v) => Math.max(-MAX, Math.min(MAX, v))
-  const pClamped = clamp(playerAvg)
-  const fClamped = clamp(fieldAvg)
-
-  // Represent as fraction of MAX (always positive, color conveys good/bad)
-  const pPct = Math.abs(pClamped) / (2 * MAX)
-  const fPct = Math.abs(fClamped) / (2 * MAX)
-
-  const playerColor = playerAvg < 0 ? '#079E78' : playerAvg === 0 ? '#E0E1E5' : '#CC0131'
-  const fieldColor = '#E0E1E5'
-
-  const segments = [
-    { pct: pPct, color: playerColor },
-    { pct: fPct, color: fieldColor },
-    { pct: Math.max(0, 1 - pPct - fPct), color: '#F3F4EE' },
-  ]
-
-  function vsParLabel(n) {
-    if (n === 0) return 'E'
-    return n > 0 ? `+${n.toFixed(1)}` : `${n.toFixed(1)}`
-  }
-
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="relative w-28 h-28">
-        <svg viewBox="0 0 100 100" className="w-full h-full">
-          <circle cx={DONUT_CX} cy={DONUT_CY} r={DONUT_R} fill="none" stroke="#F3F4EE" strokeWidth={STROKE_WIDTH} />
-          <DonutSegments segments={segments} />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={`text-sm font-black ${playerAvg < 0 ? 'text-[#079E78]' : playerAvg > 0 ? 'text-[#CC0131]' : 'text-gray-600'}`}>
-            {vsParLabel(playerAvg)}
-          </span>
-        </div>
-      </div>
-      <div className="text-center space-y-1">
-        <div className="flex items-center gap-1.5 justify-center text-xs">
-          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: playerColor }} />
-          <span className="text-gray-600 font-medium">You: {vsParLabel(playerAvg)}</span>
-        </div>
-        <div className="flex items-center gap-1.5 justify-center text-xs">
-          <span className="w-2 h-2 rounded-full bg-[#E0E1E5]" />
-          <span className="text-gray-500">Field: {vsParLabel(fieldAvg)}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Stat Card ────────────────────────────────────────────────────────────────
-
-function StatCard({ label, value, sub, color }) {
-  return (
-    <div className="bg-white rounded-xl border border-silver p-4">
-      <p className={`text-2xl font-display font-black ${color || 'text-gray-900'}`}>{value ?? '—'}</p>
-      <p className="text-xs font-semibold text-gray-500 mt-0.5">{label}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-    </div>
-  )
-}
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function vsParLabel(n) {
   if (n == null) return '—'
@@ -157,10 +11,151 @@ function vsParLabel(n) {
   return n > 0 ? `+${n}` : `${n}`
 }
 
-function finishLabel(finish, total) {
-  if (finish == null) return '—'
-  if (total) return `${finish} / ${total}`
-  return `${finish}`
+function vsParColor(n) {
+  if (n == null) return 'text-gray-900'
+  if (n < 0) return 'text-[#079E78]'
+  if (n === 0) return 'text-gray-600'
+  return 'text-[#CC0131]'
+}
+
+// ─── Large Donut Chart ────────────────────────────────────────────────────────
+// Uses SVG <path> arc segments — precise boundaries, no strokeDashoffset gaps.
+
+const D_CX = 50
+const D_CY = 50
+const D_R  = 36   // centre radius of the ring
+const D_SW = 14   // ring thickness
+
+const CATEGORIES = [
+  { key: 'eagle_or_better', label: 'Eagles',        shortLabel: 'EAGLES',        color: '#079E78' },
+  { key: 'birdie',          label: 'Birdies',        shortLabel: 'BIRDIES',       color: '#135D40' },
+  { key: 'par',             label: 'Par',            shortLabel: 'PAR',           color: '#C4C6CC' },
+  { key: 'bogey',           label: 'Bogey',          shortLabel: 'BOGEY',         color: '#4a4945' },
+  { key: 'double_plus',     label: 'Double Bogeys+', shortLabel: 'DOUBLE BOGEYS+',color: '#000000' },
+]
+
+function polarXY(cx, cy, r, angleDeg) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+}
+
+function ringSegmentPath(cx, cy, r, sw, startDeg, endDeg) {
+  const end = Math.min(endDeg, startDeg + 359.9999) // avoid SVG full-circle collapse
+  const ro = r + sw / 2
+  const ri = r - sw / 2
+  const large = end - startDeg > 180 ? 1 : 0
+  const s  = polarXY(cx, cy, ro, startDeg)
+  const e  = polarXY(cx, cy, ro, end)
+  const si = polarXY(cx, cy, ri, startDeg)
+  const ei = polarXY(cx, cy, ri, end)
+  return [
+    `M ${s.x} ${s.y}`,
+    `A ${ro} ${ro} 0 ${large} 1 ${e.x} ${e.y}`,
+    `L ${ei.x} ${ei.y}`,
+    `A ${ri} ${ri} 0 ${large} 0 ${si.x} ${si.y}`,
+    'Z',
+  ].join(' ')
+}
+
+function LargeDonut({ distribution }) {
+  const total = distribution?.total || 0
+  if (total === 0) return null
+
+  let cumDeg = 0
+  const segments = CATEGORIES
+    .map((cat) => ({ ...cat, count: distribution[cat.key] || 0 }))
+    .filter((cat) => cat.count > 0)
+    .map((cat) => {
+      const startDeg = cumDeg
+      const endDeg   = cumDeg + (cat.count / total) * 360
+      cumDeg = endDeg
+      return { ...cat, startDeg, endDeg }
+    })
+
+  return (
+    <div className="flex flex-col items-center gap-5">
+      {/* Donut */}
+      <div className="relative" style={{ width: 250, height: 250 }}>
+        <svg viewBox="0 0 100 100" width={250} height={250}>
+          {/* Background ring */}
+          <circle cx={D_CX} cy={D_CY} r={D_R} fill="none" stroke="#EDEDED" strokeWidth={D_SW} />
+          {segments.map((seg, i) => (
+            <path
+              key={i}
+              d={ringSegmentPath(D_CX, D_CY, D_R, D_SW, seg.startDeg, seg.endDeg)}
+              fill={seg.color}
+            />
+          ))}
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="font-display font-black text-base text-gray-800">Overall</span>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+        {CATEGORIES.map((cat) => {
+          const count = distribution[cat.key] || 0
+          return (
+            <div key={cat.key} className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+              <span className="text-gray-600">
+                {cat.label}{' '}
+                <span className="font-semibold text-gray-800">({count})</span>
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Category Bar Charts ──────────────────────────────────────────────────────
+
+function CategoryBar({ cat, playerCount, playerTotal, fieldCount, fieldTotal }) {
+  const playerPct = playerTotal > 0 ? Math.round((playerCount / playerTotal) * 100) : 0
+  const fieldPct = fieldTotal > 0 ? Math.round((fieldCount / fieldTotal) * 100) : 0
+
+  return (
+  <div className="space-y-1">
+    {/* Player bar */}
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-black uppercase tracking-widest text-gray-500">{cat.shortLabel}</p>
+        <div className="flex items-baseline gap-2">
+          <span className="text-lg font-bold text-gray-700">{playerPct}%</span>
+          <span className="text-xs text-gray-400">vs. {fieldPct}% field</span>
+        </div>
+      </div>
+      <div className="h-3.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${playerPct}%`, backgroundColor: cat.color }}
+        />
+      </div>
+    </div>
+    {/* Field bar */}
+    <div>
+      <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-full rounded-full bg-gray-300" style={{ width: `${fieldPct}%` }} />
+      </div>
+    </div>
+  </div>
+)
+}
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+function StatCard({ label, value, color }) {
+  return (
+    <div className="bg-white rounded-xl border border-[#E0E1E5] p-4 text-center">
+      <p className={`text-2xl font-display font-black leading-none ${color || 'text-gray-900'}`}>
+        {value ?? '—'}
+      </p>
+      <p className="text-xs font-semibold text-gray-500 mt-1.5">{label}</p>
+    </div>
+  )
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -198,35 +193,34 @@ export default function PlayerStats() {
   const {
     tournaments_entered,
     rounds_played,
+    total_holes_played,
     best_finish,
     lowest_round_vs_par,
     highest_round_vs_par,
+    avg_round_vs_par,
     rounds_under_par,
-    scoring_avg_vs_par,
-    current_handicap,
-    first_tournament_date,
-    last_tournament_date,
     hole_in_ones,
     scoring_distribution,
-    field_avg_vs_par,
+    field_scoring_distribution,
     championships = [],
     tournament_history = [],
   } = stats
 
+  const hasScoring = (scoring_distribution?.total || 0) > 0
+
   return (
     <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
+
       {/* Back link */}
       <Link to="/players" className="text-forest font-semibold text-sm hover:underline block">
         ← Players
       </Link>
 
-      {/* Header */}
-      <div className="space-y-2">
-        <h1 className="font-display font-black text-3xl text-gray-900">
+      {/* Name + champion badges */}
+      <div className="space-y-3">
+        <h1 className="font-display font-black text-4xl text-gray-900">
           {user.first_name} {user.last_name}
         </h1>
-
-        {/* Champion badges */}
         {championships.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {championships.map((c) => (
@@ -241,77 +235,74 @@ export default function PlayerStats() {
         )}
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Stats grid — 3 columns, 3 rows matching mock */}
+      <div className="grid grid-cols-3 gap-3">
         <StatCard label="Tournaments" value={tournaments_entered} />
-        <StatCard label="Rounds Played" value={rounds_played} />
+        <StatCard label="Rounds" value={rounds_played} />
+        <StatCard label="Holes" value={total_holes_played ?? '—'} />
+
+        <StatCard
+          label="Round Avg"
+          value={vsParLabel(avg_round_vs_par)}
+          color={vsParColor(avg_round_vs_par)}
+        />
+        <StatCard
+          label="Lowest Round"
+          value={vsParLabel(lowest_round_vs_par)}
+          color={vsParColor(lowest_round_vs_par)}
+        />
+        <StatCard
+          label="Highest Round"
+          value={vsParLabel(highest_round_vs_par)}
+          color={vsParColor(highest_round_vs_par)}
+        />
+
+        <StatCard
+          label="Holes in One"
+          value={hole_in_ones}
+        />
+        <StatCard label="Rounds Under Par" value={rounds_under_par} />
         <StatCard
           label="Best Finish"
           value={best_finish != null ? `#${best_finish}` : '—'}
           color={best_finish === 1 ? 'text-[#135D40]' : 'text-gray-900'}
         />
-        <StatCard
-          label="Handicap"
-          value={current_handicap != null ? `${current_handicap}` : 'None'}
-          sub={current_handicap != null ? `stroke${current_handicap !== 1 ? 's' : ''}` : undefined}
-        />
-        <StatCard
-          label="Lowest Round"
-          value={vsParLabel(lowest_round_vs_par)}
-          color={lowest_round_vs_par != null && lowest_round_vs_par < 0 ? 'text-[#079E78]' : lowest_round_vs_par === 0 ? 'text-gray-600' : 'text-[#CC0131]'}
-          sub="vs par"
-        />
-        <StatCard
-          label="Highest Round"
-          value={vsParLabel(highest_round_vs_par)}
-          color={highest_round_vs_par != null && highest_round_vs_par < 0 ? 'text-[#079E78]' : highest_round_vs_par === 0 ? 'text-gray-600' : 'text-[#CC0131]'}
-          sub="vs par"
-        />
-        <StatCard label="Rounds Under Par" value={rounds_under_par} />
-        <StatCard
-          label="Scoring Avg"
-          value={scoring_avg_vs_par != null ? (scoring_avg_vs_par >= 0 ? `+${scoring_avg_vs_par}` : `${scoring_avg_vs_par}`) : '—'}
-          sub="avg vs par / hole"
-          color={scoring_avg_vs_par != null && scoring_avg_vs_par < 0 ? 'text-[#079E78]' : scoring_avg_vs_par === 0 ? 'text-gray-900' : 'text-[#CC0131]'}
-        />
-        {hole_in_ones > 0 && (
-          <StatCard label="Hole-in-Ones 🎯" value={hole_in_ones} color="text-[#079E78]" />
-        )}
-        {first_tournament_date && (
-          <StatCard
-            label="First Season"
-            value={first_tournament_date}
-            sub={last_tournament_date && last_tournament_date !== first_tournament_date ? `Latest: ${last_tournament_date}` : undefined}
-          />
-        )}
       </div>
 
-      {/* Charts row */}
-      {(scoring_distribution?.total > 0 || field_avg_vs_par != null) && (
-        <div className="bg-white rounded-xl border border-silver p-5">
-          <h2 className="font-display font-bold text-lg text-gray-900 mb-4">Scoring Breakdown</h2>
-          <div className={`flex gap-6 ${field_avg_vs_par != null ? 'items-start' : 'justify-center'}`}>
-            {scoring_distribution?.total > 0 && (
-              <div className="flex-1">
-                <ScoringDonut distribution={scoring_distribution} />
-              </div>
-            )}
-            {field_avg_vs_par != null && scoring_avg_vs_par != null && (
-              <div className="flex flex-col items-center">
-                <p className="text-xs font-semibold text-gray-500 mb-3 text-center">vs Field</p>
-                <VsFieldDonut playerAvg={scoring_avg_vs_par} fieldAvg={field_avg_vs_par} />
-              </div>
-            )}
+      <h2 className="font-display font-black text-xl text-gray-900">Statistics</h2>
+      {/* Statistics card */}
+      {hasScoring && (
+        <div className="bg-white rounded-xl border border-[#E0E1E5] p-5 space-y-6">
+          {/* Large donut */}
+          <div className="flex justify-center">
+            <LargeDonut distribution={scoring_distribution} />
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-[#E0E1E5]" />
+
+          {/* Per-category bar charts */}
+          <div className="space-y-5">
+            {CATEGORIES.map((cat) => (
+              <CategoryBar
+                key={cat.key}
+                cat={cat}
+                playerCount={scoring_distribution?.[cat.key] || 0}
+                playerTotal={scoring_distribution?.total || 0}
+                fieldCount={field_scoring_distribution?.[cat.key] || 0}
+                fieldTotal={field_scoring_distribution?.total || 0}
+              />
+            ))}
           </div>
         </div>
       )}
 
-      {/* Tournament history */}
+      {/* Tournament History */}
       {tournament_history.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="font-display font-bold text-lg text-gray-900">Tournament History</h2>
-          <div className="overflow-x-auto rounded-xl border border-silver">
-            <table className="text-sm w-full min-w-max">
+        <div className="space-y-3">
+          <h2 className="font-display font-black text-xl text-gray-900">Tournament History</h2>
+          <div className="rounded-xl border border-[#E0E1E5] overflow-hidden">
+            <table className="text-sm w-full">
               <thead>
                 <tr className="bg-forest text-white">
                   <th className="text-left px-4 py-3 font-semibold">Tournament</th>
@@ -322,14 +313,26 @@ export default function PlayerStats() {
               </thead>
               <tbody>
                 {tournament_history.map((t, i) => (
-                  <tr key={t.tournament_id} className={`border-t border-silver ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                    <td className="px-4 py-3 font-semibold text-gray-900">{t.tournament_name}</td>
+                  <tr
+                    key={t.tournament_id}
+                    className={`border-t border-[#E0E1E5] ${i % 2 === 0 ? 'bg-white' : 'bg-[#FAFAFA]'}`}
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        to={`/leaderboard/${t.tournament_id}`}
+                        className="font-semibold text-gray-900 hover:text-forest hover:underline transition-colors"
+                      >
+                        {t.tournament_name}
+                      </Link>
+                    </td>
                     <td className="px-3 py-3 text-center text-gray-500">{t.year}</td>
                     <td className="px-3 py-3 text-center">
                       <span className={`font-bold ${t.finish === 1 ? 'text-[#135D40]' : 'text-gray-700'}`}>
                         {t.finish === 1 ? '🥇' : t.finish === 2 ? '🥈' : t.finish === 3 ? '🥉' : `#${t.finish}`}
-                        {t.total_players ? <span className="text-gray-400 font-normal text-xs ml-1">/ {t.total_players}</span> : null}
                       </span>
+                      {t.total_players ? (
+                        <span className="text-gray-400 font-normal ml-1">/ {t.total_players}</span>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3 text-center font-bold text-gray-700">{t.net_score}</td>
                   </tr>
@@ -340,7 +343,7 @@ export default function PlayerStats() {
         </div>
       )}
 
-      {tournament_history.length === 0 && scoring_distribution?.total === 0 && (
+      {!hasScoring && tournament_history.length === 0 && (
         <p className="text-gray-400 text-sm text-center py-4">No tournament history yet.</p>
       )}
     </div>
