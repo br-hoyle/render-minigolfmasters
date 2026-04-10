@@ -3,6 +3,13 @@ import { Link, useLocation } from 'react-router-dom'
 import { api } from '../api/client'
 import Banner from '../components/Banner'
 
+function formatPhone(raw) {
+  const digits = raw.replace(/\D/g, '').slice(0, 10)
+  if (digits.length <= 3) return digits
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
 export default function Contact() {
   useEffect(() => {
     document.title = 'Contact | Mini Golf Masters'
@@ -14,20 +21,28 @@ export default function Contact() {
 
   const [form, setForm] = useState({ name: '', email: '', phone: '', subject: initialSubject, message: '' })
   const [status, setStatus] = useState(null) // null | 'sending' | 'sent' | 'error'
+  const [errorMsg, setErrorMsg] = useState('')
 
   function handleChange(e) {
-    setForm((f) => ({ ...f, [e.target.name]: e.target.value }))
+    const { name, value } = e.target
+    if (name === 'phone') {
+      setForm((f) => ({ ...f, phone: formatPhone(value) }))
+    } else {
+      setForm((f) => ({ ...f, [name]: value }))
+    }
   }
 
   async function handleSubmit(e) {
     e.preventDefault()
+    setErrorMsg('')
     setStatus('sending')
     try {
       await api.post('/contact', form)
       setStatus('sent')
       setForm({ name: '', email: '', phone: '', subject: '', message: '' })
-    } catch {
+    } catch (err) {
       setStatus('error')
+      setErrorMsg(err?.message || 'Something went wrong. Please try again.')
     }
   }
 
@@ -41,7 +56,7 @@ export default function Contact() {
         </Link>
         <h1 className="font-display font-bold text-3xl text-left text-gray-900">Contact Us</h1>
         <p className="text-sm text-gray-500 text-left mt-2 mb-8">
-          We Built This Thing With Love. Tell Us What You Think — Unless it's a complaint About a Score From 2019.
+          We built this thing with love. Tell us what you think - unless it's a complaint about a score from 2024.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -70,14 +85,14 @@ export default function Contact() {
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-gray-800 mb-1">
-              Phone <span className="font-normal text-gray-400">[Optional]</span>
-            </label>
+            <label className="block text-sm font-bold text-gray-800 mb-1">Phone</label>
             <input
               type="tel"
               name="phone"
               value={form.phone}
               onChange={handleChange}
+              required
+              placeholder="(555) 555-5555"
               className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
             />
           </div>
@@ -110,7 +125,9 @@ export default function Contact() {
             <p className="text-[#079E78] font-medium text-sm">Message sent! We'll be in touch.</p>
           )}
           {status === 'error' && (
-            <p className="text-[#CC0131] font-medium text-sm">Something went wrong. Please try again.</p>
+            <p className="text-[#CC0131] font-medium text-sm">
+              {errorMsg || 'Something went wrong. Please try again.'}
+            </p>
           )}
 
           <button
