@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../context/AuthContext'
@@ -19,6 +19,8 @@ export default function RoundScores() {
   const [leaderboardOpen, setLeaderboardOpen] = useState(true)
   const [handicapOn, setHandicapOn] = useState(true)
   const [courseStats, setCourseStats] = useState(null) // hole_id -> { avg_strokes, avg_vs_par }
+  const [tableScrolled, setTableScrolled] = useState(false)
+  const tableScrollRef = useRef(null)
 
   useEffect(() => {
     async function load() {
@@ -145,8 +147,13 @@ export default function RoundScores() {
     return vsParValue
   }
 
+  // Sticky column shadow style — applied when table has been scrolled right
+  const stickyClass = tableScrolled
+    ? '[box-shadow:4px_0_8px_-3px_rgba(0,0,0,0.15)] z-10'
+    : ''
+
   return (
-    <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       {/* Back link */}
       <button
         onClick={() => navigate(`/leaderboard/${tournamentId}`)}
@@ -249,19 +256,27 @@ export default function RoundScores() {
       {holes.length > 0 && (
         <section className="space-y-2">
           <h2 className="font-display font-bold text-xl text-gray-900">Scores by Hole</h2>
-          <div className="overflow-x-auto rounded-xl border border-silver">
-            <table className="text-sm min-w-max w-full">
+          <div
+            ref={tableScrollRef}
+            className="overflow-x-auto rounded-xl border border-silver"
+            onScroll={(e) => setTableScrolled(e.currentTarget.scrollLeft > 0)}
+          >
+            <table className="text-sm w-full">
               <thead>
                 <tr className="bg-forest text-white">
-                  <th className="text-left px-4 py-2 font-semibold sticky left-0 bg-forest">Player</th>
+                  <th className={`text-left px-4 py-2 font-semibold sticky left-0 bg-forest whitespace-nowrap ${stickyClass}`}>
+                    Player
+                  </th>
                   {holes.map((h) => (
-                    <th key={h.hole_id} className="text-center px-3 py-2 font-semibold min-w-[3rem]">
+                    <th key={h.hole_id} className="text-center px-3 py-2 font-semibold min-w-[2.5rem]">
                       {h.hole_number}
                     </th>
                   ))}
                 </tr>
                 <tr className="bg-[#cce3d8]">
-                  <td className="text-left px-4 py-2 font-semibold text-gray-700 sticky left-0 bg-[#cce3d8]">Par</td>
+                  <td className={`text-left px-4 py-2 font-semibold text-gray-700 sticky left-0 bg-[#cce3d8] ${stickyClass}`}>
+                    Par
+                  </td>
                   {holes.map((h) => (
                     <td key={h.hole_id} className="text-center px-3 py-2 font-bold text-gray-800">
                       {parMap[h.hole_id] ?? '—'}
@@ -270,7 +285,9 @@ export default function RoundScores() {
                 </tr>
                 {courseStats && (
                   <tr className="bg-gray-50">
-                    <td className="text-left px-4 py-2 font-semibold text-gray-500 text-xs sticky left-0 bg-gray-50">Avg</td>
+                    <td className={`text-left px-4 py-2 font-semibold text-gray-500 text-xs sticky left-0 bg-gray-50 ${stickyClass}`}>
+                      Avg
+                    </td>
                     {holes.map((h) => {
                       const stat = courseStats[h.hole_id]
                       const avg = stat?.avg_vs_par
@@ -292,7 +309,7 @@ export default function RoundScores() {
               <tbody>
                 {playerRows.map((player, i) => (
                   <tr key={i} className={`border-t border-silver ${player.forfeit ? 'opacity-50' : ''}`}>
-                    <td className="text-left px-4 py-2 font-bold text-gray-900 sticky left-0 bg-white">
+                    <td className={`text-left px-4 py-2 font-bold text-gray-900 sticky left-0 bg-white whitespace-nowrap ${stickyClass}`}>
                       {player.name}
                       {player.forfeit && (
                         <span className="ml-1 text-xs text-[#CC0131] font-semibold">F</span>

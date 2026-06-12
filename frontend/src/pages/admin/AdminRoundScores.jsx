@@ -23,6 +23,7 @@ export default function AdminRoundScores() {
 
   const pendingRef = useRef({}) // key = `regId-holeId` -> { registration_id, hole_id, strokes }
   const timerRef = useRef(null)
+  const [tableScrolled, setTableScrolled] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -157,8 +158,12 @@ export default function AdminRoundScores() {
       return missingHoles.length > 0 ? [{ name: p.name, holes: missingHoles.map((h) => h.hole_number) }] : []
     })
 
+  const stickyClass = tableScrolled
+    ? '[box-shadow:4px_0_8px_-3px_rgba(0,0,0,0.15)] z-10'
+    : ''
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
       {/* Back link */}
       <Link
         to={`/admin/tournaments/${tournamentId}`}
@@ -198,30 +203,33 @@ export default function AdminRoundScores() {
 
       {/* Score grid */}
       {players.length > 0 && holes.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-silver">
-          <table className="text-sm min-w-max w-full">
+        <div
+          className="overflow-x-auto rounded-xl border border-silver"
+          onScroll={(e) => setTableScrolled(e.currentTarget.scrollLeft > 0)}
+        >
+          <table className="text-sm w-full">
             <thead>
               <tr className="bg-forest text-white">
-                <th className="text-left px-4 py-3 font-semibold sticky left-0 bg-forest min-w-[140px]">
+                <th className={`text-left px-4 py-3 font-semibold sticky left-0 bg-forest min-w-[140px] whitespace-nowrap ${stickyClass}`}>
                   Player
                 </th>
                 {holes.map((h) => (
-                  <th key={h.hole_id} className="text-center px-3 py-3 font-semibold min-w-[3.5rem]">
+                  <th key={h.hole_id} className="text-center px-1.5 py-3 font-semibold min-w-[2.25rem]">
                     {h.hole_number}
                   </th>
                 ))}
-                <th className="text-center px-3 py-3 font-semibold">Total</th>
+                <th className="text-center px-2 py-3 font-semibold">Total</th>
               </tr>
               <tr className="bg-[#cce3d8]">
-                <td className="text-left px-4 py-2 font-semibold text-gray-600 sticky left-0 bg-[#cce3d8]">
+                <td className={`text-left px-4 py-2 font-semibold text-gray-600 sticky left-0 bg-[#cce3d8] ${stickyClass}`}>
                   Par
                 </td>
                 {holes.map((h) => (
-                  <td key={h.hole_id} className="text-center px-3 py-2 font-bold text-gray-700">
+                  <td key={h.hole_id} className="text-center px-1.5 py-2 font-bold text-gray-700">
                     {parMap[h.hole_id] ?? '—'}
                   </td>
                 ))}
-                <td className="text-center px-3 py-2 font-bold text-gray-700">
+                <td className="text-center px-2 py-2 font-bold text-gray-700">
                   {holes.reduce((sum, h) => sum + (parMap[h.hole_id] || 0), 0) || '—'}
                 </td>
               </tr>
@@ -237,7 +245,7 @@ export default function AdminRoundScores() {
                     key={player.registration_id}
                     className={`border-t border-silver ${player.forfeit ? 'opacity-50' : ''}`}
                   >
-                    <td className="text-left px-4 py-2 font-bold text-gray-900 sticky left-0 bg-white">
+                    <td className={`text-left px-4 py-2 font-bold text-gray-900 sticky left-0 bg-white whitespace-nowrap ${stickyClass}`}>
                       {player.name}
                       {player.forfeit && (
                         <span className="ml-1 text-xs text-[#CC0131] font-semibold">F</span>
@@ -267,12 +275,12 @@ export default function AdminRoundScores() {
                               onBlur={() => commitEdit(player.registration_id, h.hole_id)}
                               onKeyDown={(e) => handleKeyDown(e, player.registration_id, h.hole_id)}
                               autoFocus
-                              className="w-12 text-center border border-forest rounded px-1 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-forest"
+                              className="w-9 text-center border border-forest rounded px-0.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-forest"
                             />
                           ) : (
                             <button
                               onClick={() => handleCellClick(player.registration_id, h.hole_id, value)}
-                              className={`w-12 h-8 rounded text-center text-sm font-medium transition-colors ${
+                              className={`w-9 h-7 rounded text-center text-sm font-medium transition-colors ${
                                 value !== undefined
                                   ? 'bg-gray-50 hover:bg-forest/10 text-gray-900'
                                   : 'bg-transparent hover:bg-gray-50 text-gray-300'
@@ -284,7 +292,7 @@ export default function AdminRoundScores() {
                         </td>
                       )
                     })}
-                    <td className="text-center px-3 py-2 font-bold text-gray-700">
+                    <td className="text-center px-2 py-2 font-bold text-gray-700">
                       {total > 0 ? total : '—'}
                     </td>
                   </tr>
