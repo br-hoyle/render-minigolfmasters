@@ -3,13 +3,6 @@ import { Link, useLocation } from 'react-router-dom'
 import { api } from '../api/client'
 import Banner from '../components/Banner'
 
-function formatPhone(raw) {
-  const digits = raw.replace(/\D/g, '').slice(0, 10)
-  if (digits.length <= 3) return digits
-  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-}
-
 export default function Contact() {
   useEffect(() => {
     document.title = 'Contact | Mini Golf Masters'
@@ -19,17 +12,13 @@ export default function Contact() {
   const params = new URLSearchParams(search)
   const initialSubject = params.get('subject') || ''
 
-  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: initialSubject, message: '' })
+  const [form, setForm] = useState({ name: '', email: '', subject: initialSubject, message: '' })
   const [status, setStatus] = useState(null) // null | 'sending' | 'sent' | 'error'
   const [errorMsg, setErrorMsg] = useState('')
 
   function handleChange(e) {
     const { name, value } = e.target
-    if (name === 'phone') {
-      setForm((f) => ({ ...f, phone: formatPhone(value) }))
-    } else {
-      setForm((f) => ({ ...f, [name]: value }))
-    }
+    setForm((f) => ({ ...f, [name]: value }))
   }
 
   async function handleSubmit(e) {
@@ -39,7 +28,7 @@ export default function Contact() {
     try {
       await api.post('/contact', form)
       setStatus('sent')
-      setForm({ name: '', email: '', phone: '', subject: '', message: '' })
+      setForm({ name: '', email: '', subject: '', message: '' })
     } catch (err) {
       setStatus('error')
       setErrorMsg(err?.message || 'Something went wrong. Please try again.')
@@ -80,19 +69,6 @@ export default function Contact() {
               value={form.email}
               onChange={handleChange}
               required
-              className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-800 mb-1">Phone</label>
-            <input
-              type="tel"
-              name="phone"
-              value={form.phone}
-              onChange={handleChange}
-              required
-              placeholder="(555) 555-5555"
               className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
             />
           </div>

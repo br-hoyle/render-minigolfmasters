@@ -8,7 +8,7 @@ class User(BaseModel):
     email: str
     phone: str = ""
     role: str
-    status: str = "active"  # active | inactive
+    status: str = "active"  # active | inactive | pending_review
     created_at: str
     invite_pending: bool = False  # True when password_hash is empty (invite not yet accepted)
 

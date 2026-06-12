@@ -1,4 +1,14 @@
-import { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
+
+function mapsUrl(address) {
+  const encoded = encodeURIComponent(address)
+  const isIOS =
+    /iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  return isIOS
+    ? `https://maps.apple.com/?q=${encoded}`
+    : `https://maps.google.com/?q=${encoded}`
+}
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import LoadingOverlay from '../components/LoadingOverlay'
@@ -39,90 +49,41 @@ function SummaryCard({ label, value, sub }) {
   )
 }
 
-function HoleRow({ hole, defaultOpen }) {
-  const [open, setOpen] = useState(defaultOpen)
-  const rowRef = useRef(null)
-
-  useEffect(() => {
-    if (defaultOpen && rowRef.current) {
-      rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }, [defaultOpen])
-
-  const vsPar = hole.vs_par
-  const colorClass = vsParColor(vsPar)
-
-  return (
-    <div ref={rowRef} className="border-b border-silver last:border-b-0">
-      {/* Table-row style header */}
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="w-full grid grid-cols-[3rem_3rem_4rem_4.5rem_1fr] items-center px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-      >
-        <span className="font-display font-black text-base text-gray-900">#{hole.hole_number}</span>
-        <span className="text-sm text-gray-500 text-center">{hole.par ?? '—'}</span>
-        <span className="text-sm font-semibold text-gray-900 text-center">
-          {hole.avg_score !== null ? fmtNum(hole.avg_score, 2) : '—'}
-        </span>
-        <span className={`text-sm font-bold text-center ${colorClass}`}>
-          {hole.vs_par !== null ? fmtVsPar(hole.vs_par) : '—'}
-        </span>
-        <div className="flex items-center justify-end gap-3">
-          {hole.difficulty_rank !== null && (
-            <span className="text-xs text-gray-400">#{hole.difficulty_rank} hardest</span>
-          )}
-          <span className="text-gray-400 text-xs">{open ? '∧' : '∨'}</span>
-        </div>
-      </button>
-
-      {/* Expanded detail */}
-      {open && (
-        <div className="bg-gray-50 border-t border-silver px-4 py-4 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <div>
-            <span className="text-gray-500 text-xs uppercase tracking-wide">Avg Score</span>
-            <p className="font-bold text-gray-900 mt-0.5">{fmtNum(hole.avg_score, 2)}</p>
-          </div>
-          <div>
-            <span className="text-gray-500 text-xs uppercase tracking-wide">Vs Par</span>
-            <p className={`font-bold mt-0.5 ${colorClass}`}>{fmtVsPar(hole.vs_par)}</p>
-          </div>
-          <div>
-            <span className="text-gray-500 text-xs uppercase tracking-wide">Ace %</span>
-            <p className="font-bold text-gray-900 mt-0.5">{fmtPct(hole.ace_pct)}</p>
-          </div>
-          <div>
-            <span className="text-gray-500 text-xs uppercase tracking-wide">Bogey+ %</span>
-            <p className="font-bold text-gray-900 mt-0.5">{fmtPct(hole.bogey_plus_pct)}</p>
-          </div>
-          <div>
-            <span className="text-gray-500 text-xs uppercase tracking-wide">Std Dev</span>
-            <p className="font-bold text-gray-900 mt-0.5">{fmtNum(hole.std_dev, 2)}</p>
-          </div>
-          <div>
-            <span className="text-gray-500 text-xs uppercase tracking-wide">Separation</span>
-            <p className="font-bold text-gray-900 mt-0.5">{fmtNum(hole.separation_score, 2)}</p>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-const COMPARE_COLS = [
-  { key: 'hole_number', label: 'Hole', fmt: (v) => `#${v}` },
-  { key: 'par', label: 'Par', fmt: (v) => v ?? '—' },
-  { key: 'avg_score', label: 'Avg', fmt: (v) => fmtNum(v, 2) },
-  { key: 'vs_par', label: 'vs Par', fmt: (v, row) => v !== null ? fmtVsPar(v) : '—', color: true },
-  { key: 'ace_pct', label: 'Ace %', fmt: fmtPct },
-  { key: 'bogey_plus_pct', label: 'Bogey+%', fmt: fmtPct },
-  { key: 'std_dev', label: 'Std Dev', fmt: (v) => fmtNum(v, 2) },
-  { key: 'separation_score', label: 'Sep.', fmt: (v) => fmtNum(v, 2) },
-  { key: 'difficulty_rank', label: 'Rank', fmt: (v) => v !== null ? `#${v}` : '—' },
+// Column definitions — order determines desktop column order
+const COLS = [
+  { key: 'hole_number',      label: 'Hole',    fmt: (v) => `#${v}`,            numeric: true  },
+  { key: 'par',              label: 'Par',     fmt: (v) => v ?? '—',            numeric: true  },
+  { key: 'avg_score',        label: 'Avg',     fmt: (v) => fmtNum(v, 2),        numeric: true  },
+  { key: 'vs_par',           label: 'vs Par',  fmt: (v) => v !== null ? fmtVsPar(v) : '—', numeric: true, color: true },
+  { key: 'separation_score', label: 'Sep.',    fmt: (v) => fmtNum(v, 2),        numeric: true  },
+  { key: 'std_dev',          label: 'Std Dev', fmt: (v) => fmtNum(v, 2),        numeric: true  },
+  { key: 'bogey_plus_pct',   label: 'Bogey+%', fmt: fmtPct,                    numeric: true  },
+  { key: 'ace_pct',          label: 'Ace %',   fmt: fmtPct,                    numeric: true  },
+  { key: 'difficulty_rank',  label: 'Rank',    fmt: (v) => v !== null ? `#${v}` : '—', numeric: true },
 ]
 
-function CompareTable({ holes }) {
+// Columns visible on mobile summary row (excluding chevron)
+const MOBILE_COLS = ['hole_number', 'par', 'avg_score', 'vs_par', 'separation_score']
+
+// Columns hidden on mobile (shown only in expanded detail)
+const DESKTOP_ONLY_COLS = new Set(['std_dev', 'bogey_plus_pct', 'ace_pct', 'difficulty_rank'])
+
+function SortIcon({ active, dir }) {
+  if (!active) return <span className="ml-1 text-gray-300">↕</span>
+  return <span className="ml-1 text-forest">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
+function HoleAnalyticsTable({ holes, focusHole }) {
   const [sortCol, setSortCol] = useState('hole_number')
   const [sortDir, setSortDir] = useState('asc')
+  const [expandedHole, setExpandedHole] = useState(focusHole)
+  const focusRef = useRef(null)
+
+  useEffect(() => {
+    if (focusHole && focusRef.current) {
+      focusRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [focusHole])
 
   function handleSort(key) {
     if (sortCol === key) {
@@ -142,40 +103,93 @@ function CompareTable({ holes }) {
     return sortDir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1)
   })
 
+  const mobileCols = COLS.filter((c) => MOBILE_COLS.includes(c.key))
+  const detailCols = COLS.filter((c) => !MOBILE_COLS.includes(c.key) && c.key !== 'hole_number')
+
   return (
-    <div className="overflow-x-auto -mx-4 px-4">
-      <table className="min-w-full text-sm">
+    <div className="overflow-x-auto rounded-xl border border-silver bg-white">
+      <table className="w-full text-xs">
         <thead>
-          <tr className="bg-gray-50 border-b border-silver">
-            {COMPARE_COLS.map((col) => (
+          <tr className="bg-cream border-b border-silver">
+            {COLS.map((col) => (
               <th
                 key={col.key}
                 onClick={() => handleSort(col.key)}
-                className="px-3 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-forest select-none whitespace-nowrap"
+                className={`px-3 py-2.5 text-center font-bold text-gray-700 whitespace-nowrap cursor-pointer hover:text-forest select-none transition-colors ${
+                  DESKTOP_ONLY_COLS.has(col.key) ? 'hidden md:table-cell' : ''
+                }`}
               >
                 {col.label}
-                {sortCol === col.key && (
-                  <span className="ml-1 text-forest">{sortDir === 'asc' ? '↑' : '↓'}</span>
-                )}
+                <SortIcon active={sortCol === col.key} dir={sortDir} />
               </th>
             ))}
+            {/* Mobile chevron header */}
+            <th className="md:hidden px-3 py-2.5 w-8" />
           </tr>
         </thead>
         <tbody className="divide-y divide-silver">
-          {sorted.map((hole, i) => (
-            <tr key={hole.hole_id} className={i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}>
-              {COMPARE_COLS.map((col) => (
-                <td
-                  key={col.key}
-                  className={`px-3 py-2.5 text-center whitespace-nowrap ${
-                    col.color ? vsParColor(hole[col.key]) + ' font-bold' : 'text-gray-900'
-                  } ${col.key === 'hole_number' ? 'font-display font-black' : ''}`}
+          {sorted.map((hole) => {
+            const isExpanded = expandedHole === hole.hole_number
+            const isFocused = focusHole === hole.hole_number
+
+            return (
+              <React.Fragment key={hole.hole_id}>
+                <tr
+                  ref={isFocused ? focusRef : null}
+                  className={`align-middle transition-colors hover:bg-cream/50 ${isFocused ? 'bg-yellow-50' : ''}`}
                 >
-                  {col.fmt(hole[col.key], hole)}
-                </td>
-              ))}
-            </tr>
-          ))}
+                  {COLS.map((col) => (
+                    <td
+                      key={col.key}
+                      className={`px-3 py-2.5 text-center whitespace-nowrap ${
+                        DESKTOP_ONLY_COLS.has(col.key) ? 'hidden md:table-cell' : ''
+                      } ${col.color ? vsParColor(hole[col.key]) + ' font-bold' : 'text-gray-800'} ${
+                        col.key === 'hole_number' ? 'font-display font-black text-sm' : ''
+                      }`}
+                    >
+                      {col.fmt(hole[col.key], hole)}
+                    </td>
+                  ))}
+
+                  {/* Mobile expand chevron */}
+                  <td className="md:hidden px-3 py-2.5 text-right">
+                    <button
+                      onClick={() => setExpandedHole(isExpanded ? null : hole.hole_number)}
+                      className="text-gray-400 hover:text-gray-700 transition-colors p-1"
+                      aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                    >
+                      <svg
+                        className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+
+                {/* Mobile expanded detail */}
+                {isExpanded && (
+                  <tr className="md:hidden bg-cream/40">
+                    <td colSpan={MOBILE_COLS.length + 1} className="px-4 py-4">
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                        {detailCols.map((col) => (
+                          <div key={col.key}>
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-0.5">
+                              {col.label}
+                            </p>
+                            <p className={`text-sm font-semibold ${col.color ? vsParColor(hole[col.key]) : 'text-gray-900'}`}>
+                              {col.fmt(hole[col.key], hole)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -194,7 +208,6 @@ export default function CourseDetail() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
   const [courseError, setCourseError] = useState(null)
   const [analyticsError, setAnalyticsError] = useState(null)
-  const [tab, setTab] = useState('by_hole')
 
   useEffect(() => {
     api.get(`/courses/${courseId}`)
@@ -222,14 +235,23 @@ export default function CourseDetail() {
   const noData = summary && summary.sample_size === 0
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       <button onClick={() => navigate(-1)} className="text-forest font-semibold text-sm hover:underline">
         ← Courses
       </button>
 
       <div>
         <h1 className="font-display font-black text-3xl text-gray-900">{course.name}</h1>
-        {course.address && <p className="text-sm text-gray-500 mt-1">{course.address}</p>}
+        {course.address && (
+          <a
+            href={mapsUrl(course.address)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-gray-500 hover:text-forest mt-1 inline-block"
+          >
+            📍 {course.address}
+          </a>
+        )}
         {course.description && (
           <p className="text-gray-700 text-sm leading-relaxed mt-3">{course.description}</p>
         )}
@@ -270,53 +292,11 @@ export default function CourseDetail() {
             </div>
           </div>
 
-          {/* Hole analytics — tabs */}
+          {/* Hole analytics table */}
           {holes.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-display font-bold text-lg text-gray-900">Hole Analytics</h2>
-                <div className="flex gap-1">
-                  {['by_hole', 'compare'].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setTab(t)}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                        tab === t
-                          ? 'bg-forest text-white'
-                          : 'bg-white border border-silver text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      {t === 'by_hole' ? 'By Hole' : 'Compare'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {tab === 'by_hole' && (
-                <div className="bg-white rounded-xl border border-silver overflow-hidden">
-                  {/* Table header */}
-                  <div className="grid grid-cols-[3rem_3rem_4rem_4.5rem_1fr] px-4 py-2 bg-gray-50 border-b border-silver">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Hole</span>
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide text-center">Par</span>
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide text-center">Avg</span>
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide text-center">vs Par</span>
-                    <span></span>
-                  </div>
-                  {holes.map((hole) => (
-                    <HoleRow
-                      key={hole.hole_id}
-                      hole={hole}
-                      defaultOpen={focusHole !== null && hole.hole_number === focusHole}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {tab === 'compare' && (
-                <div className="bg-white rounded-xl border border-silver overflow-hidden">
-                  <CompareTable holes={holes} />
-                </div>
-              )}
+              <h2 className="font-display font-bold text-lg text-gray-900 mb-3">Hole Analytics</h2>
+              <HoleAnalyticsTable holes={holes} focusHole={focusHole} />
             </div>
           )}
         </>
