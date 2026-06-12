@@ -161,6 +161,12 @@ def insert_user(row: dict) -> None:
     _invalidate("users")
 
 
+def delete_user(user_id: str) -> None:
+    with _cursor() as cur:
+        cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+    _invalidate("users")
+
+
 def update_user(user_id: str, updates: dict) -> None:
     clause, vals = _build_set(updates)
     with _cursor() as cur:

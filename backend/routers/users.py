@@ -6,11 +6,22 @@ from pydantic import BaseModel
 import auth as auth_utils
 import email_utils
 import sheets
-from config import FRONTEND_URL
+from config import ADMIN_EMAIL, FRONTEND_URL
 from dependencies import get_current_user, require_admin
 from models.user import User
 
 router = APIRouter()
+
+
+class RegisterRequest(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    phone: str = ""
+    password: str
+    notes: str = ""
+    # honeypot — must be empty; bots fill it in
+    website: str = ""
 
 
 class InviteRequest(BaseModel):
@@ -45,13 +56,61 @@ def list_users(current_user: dict = Depends(require_admin)):
     return result
 
 
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register_user(body: RegisterRequest):
+    """Public self-registration. Creates a pending_review account and notifies admins."""
+    # Honeypot — silently drop bot submissions
+    if body.website:
+        return {"detail": "Registration received"}
+
+    existing = sheets.get_user_by_email(body.email)
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with that email already exists")
+
+    if len(body.password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
+
+    from datetime import datetime, timezone
+    user_id = str(uuid.uuid4())
+    now = datetime.now(tz=timezone.utc).isoformat()
+    hashed = auth_utils.hash_password(body.password)
+
+    sheets.insert_user({
+        "user_id": user_id,
+        "first_name": body.first_name,
+        "last_name": body.last_name,
+        "email": body.email,
+        "phone": body.phone,
+        "password_hash": hashed,
+        "invite_token": "",
+        "role": "player",
+        "status": "pending_review",
+        "created_at": now,
+    })
+
+    admin_url = f"{FRONTEND_URL}/admin/users?tab=pending"
+    email_utils.send_email(
+        ADMIN_EMAIL,
+        "New account request — Mini Golf Masters",
+        f"A new player has requested an account on Mini Golf Masters.\n\n"
+        f"Name: {body.first_name} {body.last_name}\n"
+        f"Email: {body.email}\n"
+        f"Phone: {body.phone or '—'}\n"
+        f"Notes: {body.notes or '—'}\n\n"
+        f"Review and approve or reject the request here:\n{admin_url}",
+        reply_to=body.email,
+    )
+
+    return {"detail": "Registration received"}
+
+
 @router.get("/public")
 def list_users_public():
     """Return minimal user info (id + name only) — no auth required. Used by public leaderboard."""
     return [
         {"user_id": u["user_id"], "first_name": u["first_name"], "last_name": u["last_name"]}
         for u in sheets.get_all_users()
-        if u.get("status") != "inactive"
+        if u.get("status") not in ("inactive", "pending_review")
     ]
 
 
@@ -123,6 +182,89 @@ def invite_user(body: InviteRequest, current_user: dict = Depends(require_admin)
     )
 
     return {"detail": "Invite sent", "user_id": user_id, "email_sent": email_sent, "invite_url": invite_url}
+
+
+@router.post("/{user_id}/approve", status_code=status.HTTP_200_OK)
+def approve_user(user_id: str, _: dict = Depends(require_admin)):
+    """Approve a pending_review account: activate it and send the welcome / set-password email."""
+    user = sheets.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.get("status") != "pending_review":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not pending review")
+
+    token = auth_utils.generate_invite_token()
+    sheets.update_user(user_id, {"status": "active", "invite_token": token, "password_hash": ""})
+
+    invite_url = f"{FRONTEND_URL}/accept-invite?token={token}"
+    email_sent = email_utils.send_email(
+        user["email"],
+        "Welcome to Mini Golf Masters — set your password",
+        f"Hi {user['first_name']},\n\n"
+        f"Great news — your Mini Golf Masters account has been approved!\n\n"
+        f"Click the link below to set your password and get started:\n{invite_url}\n\n"
+        f"See you on the course!",
+    )
+
+    return {"detail": "User approved", "email_sent": email_sent, "invite_url": invite_url}
+
+
+@router.post("/{user_id}/reject", status_code=status.HTTP_200_OK)
+def reject_user(user_id: str, _: dict = Depends(require_admin)):
+    """Reject and permanently delete a pending_review account."""
+    user = sheets.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.get("status") != "pending_review":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not pending review")
+    sheets.delete_user(user_id)
+    return {"detail": "User rejected and removed"}
+
+
+@router.post("/{user_id}/resend-welcome", status_code=status.HTTP_200_OK)
+def resend_welcome(user_id: str, _: dict = Depends(require_admin)):
+    """
+    Resend a welcome/login prompt to an active user.
+    - If they haven't set a password yet (invite_pending): regenerate invite link.
+    - If they have a password: send a login-reminder email with reset-password steps.
+    """
+    user = sheets.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.get("status") == "inactive":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot send email to an inactive user")
+    if user.get("status") == "pending_review":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is still pending review")
+
+    if not user.get("password_hash"):
+        # Haven't set password yet — resend the invite link
+        token = auth_utils.generate_invite_token()
+        sheets.update_user(user_id, {"invite_token": token})
+        invite_url = f"{FRONTEND_URL}/accept-invite?token={token}"
+        email_sent = email_utils.send_email(
+            user["email"],
+            "Your Mini Golf Masters invite",
+            f"Hi {user['first_name']},\n\n"
+            f"Here's a fresh link to set up your Mini Golf Masters account:\n{invite_url}\n\n"
+            f"See you on the course!",
+        )
+        return {"detail": "Invite resent", "email_sent": email_sent}
+    else:
+        # Already has a password — send login reminder with reset steps
+        login_url = f"{FRONTEND_URL}/login"
+        reset_url = f"{FRONTEND_URL}/login"  # forgot-password is on the login page
+        email_sent = email_utils.send_email(
+            user["email"],
+            "Mini Golf Masters — your account is ready",
+            f"Hi {user['first_name']},\n\n"
+            f"Just a reminder that your Mini Golf Masters account is all set up and ready to go!\n\n"
+            f"Log in here: {login_url}\n\n"
+            f"Your email address is: {user['email']}\n\n"
+            f"Forgot your password? No problem — on the login page, click "
+            f"\"Forgot Password?\" and enter your email to receive a reset link.\n\n"
+            f"See you on the course!",
+        )
+        return {"detail": "Welcome email sent", "email_sent": email_sent}
 
 
 @router.post("/{user_id}/resend-invite", status_code=status.HTTP_200_OK)

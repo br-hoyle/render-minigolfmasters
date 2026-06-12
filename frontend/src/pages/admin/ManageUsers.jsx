@@ -8,6 +8,7 @@ const ROLE_FILTER_OPTIONS = ['All', 'Player', 'Admin']
 const STATUS_FILTER_OPTIONS = ['All', 'Invited', 'Active', 'Deactivated']
 
 function userAccountStatus(u) {
+  if (u.status === 'pending_review') return 'pending'
   if (u.status === 'inactive') return 'deactivated'
   if (u.invite_pending) return 'invited'
   return 'active'
@@ -257,7 +258,11 @@ export default function ManageUsers() {
   const [searchParams] = useSearchParams()
 
   // Derive initial tab and status filter from URL params
-  const initialTab = searchParams.get('tab') === 'handicap-requests' ? 'handicap-requests' : 'users'
+  const initialTab = searchParams.get('tab') === 'handicap-requests'
+    ? 'handicap-requests'
+    : searchParams.get('tab') === 'pending'
+    ? 'pending'
+    : 'users'
   const statusParam = searchParams.get('status') || ''
   const initialStatus = STATUS_FILTER_OPTIONS.find(
     (o) => o.toLowerCase() === statusParam.toLowerCase()
@@ -278,6 +283,11 @@ export default function ManageUsers() {
   const [roleFilter, setRoleFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState(initialStatus)
   const [resendingInvite, setResendingInvite] = useState(null)
+  const [resendingWelcome, setResendingWelcome] = useState(null)
+
+  // Pending review
+  const [approvingUser, setApprovingUser] = useState(null)
+  const [rejectingUser, setRejectingUser] = useState(null)
 
   // Handicap requests
   const [handicapRequests, setHandicapRequests] = useState([])
@@ -305,8 +315,14 @@ export default function ManageUsers() {
     return m
   }, [handicaps])
 
+  const pendingUsers = useMemo(
+    () => users.filter((u) => u.status === 'pending_review'),
+    [users]
+  )
+
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
+      if (u.status === 'pending_review') return false // shown in its own tab
       const name = `${u.first_name} ${u.last_name}`.toLowerCase()
       const matchesSearch =
         !search || name.includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
@@ -377,6 +393,48 @@ export default function ManageUsers() {
       alert(err.message || 'Failed to resend invite')
     } finally {
       setResendingInvite(null)
+    }
+  }
+
+  async function handleApproveUser(userId) {
+    setApprovingUser(userId)
+    try {
+      await api.post(`/users/${userId}/approve`, {})
+      const us = await api.get('/users/')
+      setUsers(us)
+    } catch (err) {
+      alert(err.message || 'Failed to approve user')
+    } finally {
+      setApprovingUser(null)
+    }
+  }
+
+  async function handleRejectUser(userId, name) {
+    if (!confirm(`Reject and permanently delete the account request for ${name}?`)) return
+    setRejectingUser(userId)
+    try {
+      await api.post(`/users/${userId}/reject`, {})
+      setUsers((us) => us.filter((u) => u.user_id !== userId))
+    } catch (err) {
+      alert(err.message || 'Failed to reject user')
+    } finally {
+      setRejectingUser(null)
+    }
+  }
+
+  async function handleResendWelcome(userId) {
+    setResendingWelcome(userId)
+    try {
+      const data = await api.post(`/users/${userId}/resend-welcome`, {})
+      if (data.email_sent === false) {
+        alert('Email delivery failed.')
+      } else {
+        alert('Welcome email sent.')
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to send email')
+    } finally {
+      setResendingWelcome(null)
     }
   }
 
@@ -460,6 +518,21 @@ export default function ManageUsers() {
           }`}
         >
           Users
+        </button>
+        <button
+          onClick={() => setActiveTab('pending')}
+          className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === 'pending'
+              ? 'border-forest text-forest'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Pending Review
+          {pendingUsers.length > 0 && (
+            <span className="text-xs font-bold bg-[#FBF50D] text-gray-800 px-1.5 py-0.5 rounded-full">
+              {pendingUsers.length}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab('handicap-requests')}
@@ -576,20 +649,31 @@ export default function ManageUsers() {
                     </div>
                   </div>
 
-                  {/* Row 2: joined date + resend invite */}
+                  {/* Row 2: joined date + action buttons */}
                   <div className="flex items-center justify-between gap-2">
                     <p className="italic text-xs text-gray-400">
                       User Since: {fmtJoined(u.created_at)}
                     </p>
-                    {acctStatus === 'invited' && (
-                      <button
-                        onClick={() => handleResendInvite(u.user_id)}
-                        disabled={resendingInvite === u.user_id}
-                        className="text-xs font-semibold px-3 py-1 rounded-full border border-forest text-forest hover:bg-forest hover:text-white transition-colors disabled:opacity-60"
-                      >
-                        {resendingInvite === u.user_id ? 'Sending…' : 'Resend Invite'}
-                      </button>
-                    )}
+                    <div className="flex gap-2">
+                      {acctStatus === 'invited' && (
+                        <button
+                          onClick={() => handleResendInvite(u.user_id)}
+                          disabled={resendingInvite === u.user_id}
+                          className="text-xs font-semibold px-3 py-1 rounded-full border border-forest text-forest hover:bg-forest hover:text-white transition-colors disabled:opacity-60"
+                        >
+                          {resendingInvite === u.user_id ? 'Sending…' : 'Resend Invite'}
+                        </button>
+                      )}
+                      {acctStatus === 'active' && (
+                        <button
+                          onClick={() => handleResendWelcome(u.user_id)}
+                          disabled={resendingWelcome === u.user_id}
+                          className="text-xs font-semibold px-3 py-1 rounded-full border border-silver text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-60"
+                        >
+                          {resendingWelcome === u.user_id ? 'Sending…' : 'Resend Welcome'}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Row 3: email (editable) | phone */}
@@ -613,6 +697,44 @@ export default function ManageUsers() {
               )
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── PENDING REVIEW TAB ────────────────────────────────────────────── */}
+      {activeTab === 'pending' && (
+        <div className="space-y-3">
+          {pendingUsers.length === 0 ? (
+            <p className="text-gray-500 text-sm">No pending account requests.</p>
+          ) : (
+            pendingUsers.map((u) => (
+              <div key={u.user_id} className="bg-white rounded-xl border border-silver p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-lg text-gray-900">{u.first_name} {u.last_name}</p>
+                    <p className="text-sm text-gray-600">{u.email}</p>
+                    {u.phone && <p className="text-sm text-gray-500">{u.phone}</p>}
+                    <p className="text-xs text-gray-400 mt-1">Submitted {fmtJoined(u.created_at)}</p>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      onClick={() => handleApproveUser(u.user_id)}
+                      disabled={approvingUser === u.user_id || rejectingUser === u.user_id}
+                      className="text-xs font-bold bg-forest text-white px-3 py-1.5 rounded-full hover:bg-emerald transition-colors disabled:opacity-60 whitespace-nowrap"
+                    >
+                      {approvingUser === u.user_id ? 'Approving…' : 'Approve'}
+                    </button>
+                    <button
+                      onClick={() => handleRejectUser(u.user_id, `${u.first_name} ${u.last_name}`)}
+                      disabled={approvingUser === u.user_id || rejectingUser === u.user_id}
+                      className="text-xs font-bold border border-[#CC0131] text-[#CC0131] px-3 py-1.5 rounded-full hover:bg-red-50 transition-colors disabled:opacity-60 whitespace-nowrap"
+                    >
+                      {rejectingUser === u.user_id ? 'Rejecting…' : 'Reject'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 

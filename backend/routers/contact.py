@@ -10,7 +10,6 @@ router = APIRouter()
 class ContactRequest(BaseModel):
     name: str
     email: str
-    phone: str
     subject: str
     message: str
 
@@ -18,8 +17,7 @@ class ContactRequest(BaseModel):
 @router.post("/", status_code=status.HTTP_204_NO_CONTENT)
 def contact(body: ContactRequest):
     email_body = (
-        f"From: {body.name} <{body.email}>\n"
-        f"Phone: {body.phone}\n\n"
+        f"From: {body.name} <{body.email}>\n\n"
         f"{body.message}"
     )
 

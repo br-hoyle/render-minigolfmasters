@@ -50,6 +50,11 @@ def login(body: LoginRequest):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not auth_utils.verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if user.get("status") == "pending_review":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is currently under review. You'll receive an email once it's been approved.",
+        )
     if user.get("status") == "inactive":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
