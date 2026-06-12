@@ -1,4 +1,14 @@
 import React, { useEffect, useState, useRef } from 'react'
+
+function mapsUrl(address) {
+  const encoded = encodeURIComponent(address)
+  const isIOS =
+    /iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  return isIOS
+    ? `https://maps.apple.com/?q=${encoded}`
+    : `https://maps.google.com/?q=${encoded}`
+}
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import LoadingOverlay from '../components/LoadingOverlay'
@@ -232,7 +242,16 @@ export default function CourseDetail() {
 
       <div>
         <h1 className="font-display font-black text-3xl text-gray-900">{course.name}</h1>
-        {course.address && <p className="text-sm text-gray-500 mt-1">{course.address}</p>}
+        {course.address && (
+          <a
+            href={mapsUrl(course.address)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-gray-500 hover:text-forest mt-1 inline-block"
+          >
+            📍 {course.address}
+          </a>
+        )}
         {course.description && (
           <p className="text-gray-700 text-sm leading-relaxed mt-3">{course.description}</p>
         )}
