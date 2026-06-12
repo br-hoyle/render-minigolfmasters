@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../../api/client'
 import Dialog from '../../components/Dialog'
@@ -6,6 +6,7 @@ import LoadingOverlay from '../../components/LoadingOverlay'
 
 const ROLE_FILTER_OPTIONS = ['All', 'Player', 'Admin']
 const STATUS_FILTER_OPTIONS = ['All', 'Invited', 'Active', 'Deactivated']
+const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 function userAccountStatus(u) {
   if (u.status === 'pending_review') return 'pending'
@@ -116,7 +117,7 @@ function fmtSubmitted(isoStr) {
   })
 }
 
-// ── Email inline edit on user card ───────────────────────────────────────────
+// ── Email inline edit ─────────────────────────────────────────────────────────
 function EmailInline({ userId, currentEmail, isInvitePending, onSaved }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(currentEmail || '')
@@ -145,9 +146,9 @@ function EmailInline({ userId, currentEmail, isInvitePending, onSaved }) {
 
   if (!editing) {
     return (
-      <span className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-sm text-gray-600">{currentEmail}</span>
-        <button onClick={startEdit} className="text-xs text-forest hover:underline font-semibold">
+      <span className="flex items-center gap-1 flex-wrap">
+        <span className="text-sm text-gray-700 break-all">{currentEmail}</span>
+        <button onClick={startEdit} className="text-xs text-forest hover:underline font-semibold shrink-0">
           Edit
         </button>
       </span>
@@ -155,33 +156,29 @@ function EmailInline({ userId, currentEmail, isInvitePending, onSaved }) {
   }
 
   return (
-    <span className="flex items-center gap-1.5 flex-wrap">
+    <span className="flex flex-col gap-1">
       <input
         type="email"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         autoFocus
-        className="border border-silver rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-forest"
+        className="border border-silver rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-forest w-full"
       />
       {isInvitePending && (
         <span className="text-xs text-amber-600">New invite will be sent</span>
       )}
       {error && <span className="text-xs text-[#CC0131]">{error}</span>}
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="text-xs font-bold text-forest hover:underline disabled:opacity-60"
-      >
-        {saving ? '…' : 'Save'}
-      </button>
-      <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:underline">
-        Cancel
-      </button>
+      <span className="flex gap-2">
+        <button onClick={handleSave} disabled={saving} className="text-xs font-bold text-forest hover:underline disabled:opacity-60">
+          {saving ? '…' : 'Save'}
+        </button>
+        <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+      </span>
     </span>
   )
 }
 
-// ── Handicap inline edit on user card ────────────────────────────────────────
+// ── Handicap inline edit ──────────────────────────────────────────────────────
 function HandicapInline({ userId, currentStrokes, onSaved }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(currentStrokes != null ? String(currentStrokes) : '0')
@@ -212,21 +209,14 @@ function HandicapInline({ userId, currentStrokes, onSaved }) {
   if (!editing) {
     return (
       <span className="flex items-center gap-1">
-        <span className="text-xs text-gray-500">
-          Handicap: {currentStrokes != null ? `+${currentStrokes}` : '0'}
-        </span>
-        <button
-          onClick={startEdit}
-          className="text-xs text-forest hover:underline font-semibold"
-        >
-          Edit
-        </button>
+        <span className="text-sm text-gray-700">{currentStrokes != null ? `+${currentStrokes}` : '—'}</span>
+        <button onClick={startEdit} className="text-xs text-forest hover:underline font-semibold">Edit</button>
       </span>
     )
   }
 
   return (
-    <span className="flex items-center gap-1.5 flex-wrap">
+    <span className="flex flex-col gap-1">
       <input
         type="number"
         min={0}
@@ -237,16 +227,12 @@ function HandicapInline({ userId, currentStrokes, onSaved }) {
         className="w-14 border border-silver rounded-lg px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-forest"
       />
       {error && <span className="text-xs text-[#CC0131]">{error}</span>}
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="text-xs font-bold text-forest hover:underline disabled:opacity-60"
-      >
-        {saving ? '…' : 'Save'}
-      </button>
-      <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:underline">
-        Cancel
-      </button>
+      <span className="flex gap-2">
+        <button onClick={handleSave} disabled={saving} className="text-xs font-bold text-forest hover:underline disabled:opacity-60">
+          {saving ? '…' : 'Save'}
+        </button>
+        <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+      </span>
     </span>
   )
 }
@@ -257,7 +243,6 @@ export default function ManageUsers() {
 
   const [searchParams] = useSearchParams()
 
-  // Derive initial tab and status filter from URL params
   const initialTab = searchParams.get('tab') === 'handicap-requests'
     ? 'handicap-requests'
     : searchParams.get('tab') === 'pending'
@@ -285,6 +270,13 @@ export default function ManageUsers() {
   const [resendingInvite, setResendingInvite] = useState(null)
   const [resendingWelcome, setResendingWelcome] = useState(null)
 
+  // Pagination
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
+  // Mobile row expansion
+  const [expandedRow, setExpandedRow] = useState(null)
+
   // Pending review
   const [approvingUser, setApprovingUser] = useState(null)
   const [rejectingUser, setRejectingUser] = useState(null)
@@ -306,7 +298,6 @@ export default function ManageUsers() {
     })
   }, [])
 
-  // Current handicap per user (active_to = '9999-12-31')
   const handicapMap = useMemo(() => {
     const m = {}
     handicaps.forEach((h) => {
@@ -322,7 +313,7 @@ export default function ManageUsers() {
 
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
-      if (u.status === 'pending_review') return false // shown in its own tab
+      if (u.status === 'pending_review') return false
       const name = `${u.first_name} ${u.last_name}`.toLowerCase()
       const matchesSearch =
         !search || name.includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
@@ -332,6 +323,12 @@ export default function ManageUsers() {
       return matchesSearch && matchesRole && matchesStatus
     })
   }, [users, search, roleFilter, statusFilter])
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setPage(1) }, [search, roleFilter, statusFilter, pageSize])
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize))
+  const pagedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize)
 
   const pendingRequests = handicapRequests.filter((r) => r.status === 'pending')
 
@@ -490,7 +487,7 @@ export default function ManageUsers() {
   if (loading) return <LoadingOverlay />
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
+    <div className="max-w-6xl mx-auto px-4 py-6 space-y-5">
       {/* Back link */}
       <Link to="/admin" className="text-forest font-semibold text-sm hover:underline block">
         ← Portal
@@ -554,149 +551,342 @@ export default function ManageUsers() {
       {/* ── USERS TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'users' && (
         <div className="space-y-4">
-          {/* Search */}
-          <input
-            type="text"
-            placeholder="Search by Name or Email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-          />
-
-          {/* Filters */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide w-12">Role</span>
-              {ROLE_FILTER_OPTIONS.map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() => setRoleFilter(opt)}
-                  className={`rounded-full px-4 py-1.5 text-sm font-semibold cursor-pointer transition-colors ${
-                    roleFilter === opt
-                      ? 'bg-forest text-white'
-                      : 'bg-white text-gray-600 border border-silver hover:bg-gray-50'
-                  }`}
-                >
-                  {opt}
-                </button>
-              ))}
+          {/* Search + filters row */}
+          <div className="flex flex-col gap-3">
+            <input
+              type="text"
+              placeholder="Search by name or email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+            />
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Role</span>
+                {ROLE_FILTER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setRoleFilter(opt)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                      roleFilter === opt
+                        ? 'bg-forest text-white'
+                        : 'bg-white text-gray-600 border border-silver hover:bg-gray-50'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Status</span>
+                {STATUS_FILTER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setStatusFilter(opt)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                      statusFilter === opt
+                        ? 'bg-forest text-white'
+                        : 'bg-white text-gray-600 border border-silver hover:bg-gray-50'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide w-12">Status</span>
-              {STATUS_FILTER_OPTIONS.map((opt) => (
+          </div>
+
+          {/* Count + page size */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-gray-500">
+              {filteredUsers.length === 0
+                ? 'No users match your filters.'
+                : `Showing ${Math.min((page - 1) * pageSize + 1, filteredUsers.length)}–${Math.min(page * pageSize, filteredUsers.length)} of ${filteredUsers.length} user${filteredUsers.length !== 1 ? 's' : ''}`}
+            </p>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500 font-medium">Per page</span>
+              {PAGE_SIZE_OPTIONS.map((n) => (
                 <button
-                  key={opt}
-                  onClick={() => setStatusFilter(opt)}
-                  className={`rounded-full px-4 py-1.5 text-sm font-semibold cursor-pointer transition-colors ${
-                    statusFilter === opt
+                  key={n}
+                  onClick={() => setPageSize(n)}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                    pageSize === n
                       ? 'bg-forest text-white'
                       : 'bg-white text-gray-600 border border-silver hover:bg-gray-50'
                   }`}
                 >
-                  {opt}
+                  {n}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* User cards */}
-          {filteredUsers.length === 0 && (
-            <p className="text-gray-500 text-sm">No users match your filters.</p>
+          {/* Table */}
+          {filteredUsers.length > 0 && (
+            <div className="overflow-x-auto rounded-xl border border-silver">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-cream border-b border-silver">
+                    <th className="text-left px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap">Name</th>
+                    {/* Desktop-only columns */}
+                    <th className="hidden md:table-cell text-left px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap">Email</th>
+                    <th className="hidden md:table-cell text-left px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap">Phone</th>
+                    <th className="hidden md:table-cell text-left px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap">User Since</th>
+                    <th className="hidden md:table-cell text-left px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap">Handicap</th>
+                    <th className="hidden md:table-cell text-left px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap">Status</th>
+                    <th className="text-left px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap">Role</th>
+                    <th className="hidden md:table-cell text-left px-3 py-2.5 font-bold text-gray-700 whitespace-nowrap">Actions</th>
+                    {/* Mobile chevron column */}
+                    <th className="md:hidden px-3 py-2.5 w-8" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-silver bg-white">
+                  {pagedUsers.map((u) => {
+                    const acctStatus = userAccountStatus(u)
+                    const isDisabled = updating === u.user_id
+                    const isExpanded = expandedRow === u.user_id
+
+                    const statusOptions =
+                      acctStatus === 'deactivated'
+                        ? [{ value: 'active', label: 'Activate' }]
+                        : [{ value: 'inactive', label: 'Deactivate' }]
+
+                    const roleOptions =
+                      u.role === 'admin'
+                        ? [{ value: 'player', label: 'Change to Player' }]
+                        : [{ value: 'admin', label: 'Change to Admin' }]
+
+                    return (
+                      <React.Fragment key={u.user_id}>
+                        <tr
+                          className={`align-middle transition-colors hover:bg-cream/50 ${
+                            acctStatus === 'deactivated' ? 'opacity-50' : ''
+                          }`}
+                        >
+                          {/* Name — always visible */}
+                          <td className="px-3 py-2.5 font-semibold text-gray-900 whitespace-nowrap">
+                            {u.first_name} {u.last_name}
+                          </td>
+
+                          {/* Desktop-only cells */}
+                          <td className="hidden md:table-cell px-3 py-2.5 whitespace-nowrap">
+                            <EmailInline
+                              userId={u.user_id}
+                              currentEmail={u.email}
+                              isInvitePending={u.invite_pending}
+                              onSaved={handleEmailSaved}
+                            />
+                          </td>
+                          <td className="hidden md:table-cell px-3 py-2.5 text-gray-600 whitespace-nowrap">
+                            {u.phone || <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="hidden md:table-cell px-3 py-2.5 text-gray-500 whitespace-nowrap">
+                            {fmtJoined(u.created_at)}
+                          </td>
+                          <td className="hidden md:table-cell px-3 py-2.5">
+                            <HandicapInline
+                              userId={u.user_id}
+                              currentStrokes={handicapMap[u.user_id] ?? null}
+                              onSaved={handleHandicapSaved}
+                            />
+                          </td>
+                          <td className="hidden md:table-cell px-3 py-2.5">
+                            <StatusBadge
+                              status={acctStatus}
+                              options={statusOptions}
+                              onSelect={(val) => handleStatusChange(u.user_id, val)}
+                              disabled={isDisabled}
+                            />
+                          </td>
+
+                          {/* Role — always visible */}
+                          <td className="px-3 py-2.5">
+                            <RoleBadge
+                              role={u.role}
+                              options={roleOptions}
+                              onSelect={(val) => handleRoleChange(u.user_id, val)}
+                              disabled={isDisabled || acctStatus === 'deactivated'}
+                            />
+                          </td>
+
+                          {/* Actions — desktop only */}
+                          <td className="hidden md:table-cell px-3 py-2.5 whitespace-nowrap">
+                            {acctStatus === 'invited' && (
+                              <button
+                                onClick={() => handleResendInvite(u.user_id)}
+                                disabled={resendingInvite === u.user_id}
+                                className="text-xs font-semibold px-3 py-1 rounded-full border border-forest text-forest hover:bg-forest hover:text-white transition-colors disabled:opacity-60"
+                              >
+                                {resendingInvite === u.user_id ? 'Sending…' : 'Resend Invite'}
+                              </button>
+                            )}
+                            {acctStatus === 'active' && (
+                              <button
+                                onClick={() => handleResendWelcome(u.user_id)}
+                                disabled={resendingWelcome === u.user_id}
+                                className="text-xs font-semibold px-3 py-1 rounded-full border border-silver text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-60"
+                              >
+                                {resendingWelcome === u.user_id ? 'Sending…' : 'Resend Welcome'}
+                              </button>
+                            )}
+                          </td>
+
+                          {/* Mobile expand chevron */}
+                          <td className="md:hidden px-3 py-2.5 text-right">
+                            <button
+                              onClick={() => setExpandedRow(isExpanded ? null : u.user_id)}
+                              className="text-gray-400 hover:text-gray-700 transition-colors p-1"
+                              aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                            >
+                              <svg
+                                className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Mobile expanded detail row */}
+                        {isExpanded && (
+                          <tr className="md:hidden bg-cream/40">
+                            <td colSpan={3} className="px-4 py-4">
+                              <div className="space-y-3">
+                                {/* Status badge */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <StatusBadge
+                                    status={acctStatus}
+                                    options={statusOptions}
+                                    onSelect={(val) => handleStatusChange(u.user_id, val)}
+                                    disabled={isDisabled}
+                                  />
+                                  {acctStatus === 'invited' && (
+                                    <button
+                                      onClick={() => handleResendInvite(u.user_id)}
+                                      disabled={resendingInvite === u.user_id}
+                                      className="text-xs font-semibold px-3 py-1 rounded-full border border-forest text-forest hover:bg-forest hover:text-white transition-colors disabled:opacity-60"
+                                    >
+                                      {resendingInvite === u.user_id ? 'Sending…' : 'Resend Invite'}
+                                    </button>
+                                  )}
+                                  {acctStatus === 'active' && (
+                                    <button
+                                      onClick={() => handleResendWelcome(u.user_id)}
+                                      disabled={resendingWelcome === u.user_id}
+                                      className="text-xs font-semibold px-3 py-1 rounded-full border border-silver text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-60"
+                                    >
+                                      {resendingWelcome === u.user_id ? 'Sending…' : 'Resend Welcome'}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Email */}
+                                <div>
+                                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Email</p>
+                                  <EmailInline
+                                    userId={u.user_id}
+                                    currentEmail={u.email}
+                                    isInvitePending={u.invite_pending}
+                                    onSaved={handleEmailSaved}
+                                  />
+                                </div>
+
+                                {/* Phone + User Since side by side */}
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Phone</p>
+                                    <p className="text-sm text-gray-700">{u.phone || <span className="text-gray-300">—</span>}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">User Since</p>
+                                    <p className="text-sm text-gray-700">{fmtJoined(u.created_at)}</p>
+                                  </div>
+                                </div>
+
+                                {/* Handicap */}
+                                <div>
+                                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Handicap</p>
+                                  <HandicapInline
+                                    userId={u.user_id}
+                                    currentStrokes={handicapMap[u.user_id] ?? null}
+                                    onSaved={handleHandicapSaved}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
 
-          <div className="space-y-3">
-            {filteredUsers.map((u) => {
-              const acctStatus = userAccountStatus(u)
-              const isDisabled = updating === u.user_id
-
-              // Status badge options based on current status
-              const statusOptions =
-                acctStatus === 'deactivated'
-                  ? [{ value: 'active', label: 'Activate' }]
-                  : [{ value: 'inactive', label: 'Deactivate' }]
-
-              // Role badge options
-              const roleOptions =
-                u.role === 'admin'
-                  ? [{ value: 'player', label: 'Change to Player' }]
-                  : [{ value: 'admin', label: 'Change to Admin' }]
-
-              return (
-                <div
-                  key={u.user_id}
-                  className={`bg-white rounded-xl border border-silver p-4 space-y-2 ${
-                    acctStatus === 'deactivated' ? 'opacity-60' : ''
-                  }`}
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+              <p className="text-sm text-gray-500">
+                Page {page} of {totalPages}
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-silver text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-default transition-colors"
                 >
-                  {/* Row 1: name + badges */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <p className="font-bold text-lg text-gray-900">
-                      {u.first_name} {u.last_name}
-                    </p>
-                    <div className="flex items-center gap-1.5">
-                      <StatusBadge
-                        status={acctStatus}
-                        options={statusOptions}
-                        onSelect={(val) => handleStatusChange(u.user_id, val)}
-                        disabled={isDisabled}
-                      />
-                      <RoleBadge
-                        role={u.role}
-                        options={roleOptions}
-                        onSelect={(val) => handleRoleChange(u.user_id, val)}
-                        disabled={isDisabled || acctStatus === 'deactivated'}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Row 2: joined date + action buttons */}
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="italic text-xs text-gray-400">
-                      User Since: {fmtJoined(u.created_at)}
-                    </p>
-                    <div className="flex gap-2">
-                      {acctStatus === 'invited' && (
-                        <button
-                          onClick={() => handleResendInvite(u.user_id)}
-                          disabled={resendingInvite === u.user_id}
-                          className="text-xs font-semibold px-3 py-1 rounded-full border border-forest text-forest hover:bg-forest hover:text-white transition-colors disabled:opacity-60"
-                        >
-                          {resendingInvite === u.user_id ? 'Sending…' : 'Resend Invite'}
-                        </button>
-                      )}
-                      {acctStatus === 'active' && (
-                        <button
-                          onClick={() => handleResendWelcome(u.user_id)}
-                          disabled={resendingWelcome === u.user_id}
-                          className="text-xs font-semibold px-3 py-1 rounded-full border border-silver text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-60"
-                        >
-                          {resendingWelcome === u.user_id ? 'Sending…' : 'Resend Welcome'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Row 3: email (editable) | phone */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <EmailInline
-                      userId={u.user_id}
-                      currentEmail={u.email}
-                      isInvitePending={u.invite_pending}
-                      onSaved={handleEmailSaved}
-                    />
-                    {u.phone && <span className="text-sm text-gray-400">| {u.phone}</span>}
-                  </div>
-
-                  {/* Row 4: handicap */}
-                  <HandicapInline
-                    userId={u.user_id}
-                    currentStrokes={handicapMap[u.user_id] ?? null}
-                    onSaved={handleHandicapSaved}
-                  />
-                </div>
-              )
-            })}
-          </div>
+                  «
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 text-xs font-semibold rounded-lg border border-silver text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-default transition-colors"
+                >
+                  Prev
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((n) => n === 1 || n === totalPages || Math.abs(n - page) <= 1)
+                  .reduce((acc, n, idx, arr) => {
+                    if (idx > 0 && n - arr[idx - 1] > 1) acc.push('…')
+                    acc.push(n)
+                    return acc
+                  }, [])
+                  .map((item, idx) =>
+                    item === '…' ? (
+                      <span key={`ellipsis-${idx}`} className="px-1 text-xs text-gray-400">…</span>
+                    ) : (
+                      <button
+                        key={item}
+                        onClick={() => setPage(item)}
+                        className={`w-8 py-1 text-xs font-semibold rounded-lg border transition-colors ${
+                          page === item
+                            ? 'bg-forest text-white border-forest'
+                            : 'border-silver text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    )
+                  )}
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="px-3 py-1 text-xs font-semibold rounded-lg border border-silver text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-default transition-colors"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setPage(totalPages)}
+                  disabled={page === totalPages}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-silver text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-default transition-colors"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -780,7 +970,6 @@ export default function ManageUsers() {
             ))
           )}
 
-          {/* Resolved requests (collapsed) */}
           {handicapRequests.filter((r) => r.status !== 'pending').length > 0 && (
             <details className="mt-2">
               <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
