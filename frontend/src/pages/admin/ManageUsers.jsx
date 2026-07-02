@@ -773,6 +773,16 @@ export default function ManageUsers() {
                             />
                           </td>
 
+                          {/* Status — mobile only (desktop has its own column) */}
+                          <td className="md:hidden px-3 py-2.5">
+                            <StatusBadge
+                              status={acctStatus}
+                              options={statusOptions}
+                              onSelect={(val) => handleStatusChange(u.user_id, val)}
+                              disabled={isDisabled}
+                            />
+                          </td>
+
                           {/* Role — always visible */}
                           <td className="px-3 py-2.5">
                             <RoleBadge
