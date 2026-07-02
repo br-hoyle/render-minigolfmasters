@@ -17,7 +17,7 @@ class RegisterRequest(BaseModel):
     first_name: str
     last_name: str
     email: str
-    phone: str = ""
+    phone: str
     password: str
     notes: str = ""
     invited_by_id: str | None = None
@@ -29,7 +29,7 @@ class InviteRequest(BaseModel):
     first_name: str
     last_name: str
     email: str
-    phone: str = ""
+    phone: str
     role: str = "player"
 
 
@@ -78,8 +78,8 @@ def register_user(body: RegisterRequest):
 
     sheets.insert_user({
         "user_id": user_id,
-        "first_name": body.first_name,
-        "last_name": body.last_name,
+        "first_name": body.first_name.strip().title(),
+        "last_name": body.last_name.strip().title(),
         "email": body.email,
         "phone": body.phone,
         "password_hash": hashed,
@@ -172,8 +172,8 @@ def invite_user(body: InviteRequest, current_user: dict = Depends(require_admin)
 
     sheets.insert_user({
         "user_id": user_id,
-        "first_name": body.first_name,
-        "last_name": body.last_name,
+        "first_name": body.first_name.strip().title(),
+        "last_name": body.last_name.strip().title(),
         "email": body.email,
         "phone": body.phone,
         "password_hash": "",

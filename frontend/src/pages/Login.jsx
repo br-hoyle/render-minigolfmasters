@@ -288,14 +288,13 @@ export default function Login() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-bold text-gray-800 mb-1">
-                        Phone <span className="font-normal text-gray-400">(optional)</span>
-                      </label>
+                      <label className="block text-sm font-bold text-gray-800 mb-1">Phone</label>
                       <input
                         type="tel"
                         name="phone"
                         value={reg.phone}
                         onChange={handleRegChange}
+                        required
                         autoComplete="tel"
                         placeholder="(555) 555-5555"
                         className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
