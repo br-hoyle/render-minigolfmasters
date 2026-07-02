@@ -178,6 +178,72 @@ function EmailInline({ userId, currentEmail, isInvitePending, onSaved }) {
   )
 }
 
+// ── Phone inline edit ─────────────────────────────────────────────────────────
+function PhoneInline({ userId, currentPhone, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(currentPhone || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  function formatPhone(raw) {
+    const digits = raw.replace(/\D/g, '').slice(0, 10)
+    if (digits.length <= 3) return digits
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  }
+
+  function startEdit() {
+    setValue(currentPhone || '')
+    setError(null)
+    setEditing(true)
+  }
+
+  async function handleSave() {
+    if (!value) { setError('Phone required'); return }
+    setSaving(true)
+    try {
+      await api.patch(`/users/${userId}`, { phone: value })
+      onSaved(userId, value)
+      setEditing(false)
+    } catch (err) {
+      setError(err.message || 'Error saving phone')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span className="flex items-center gap-1 flex-wrap">
+        <span className="text-sm text-gray-700">{currentPhone || <span className="text-gray-300">—</span>}</span>
+        <button onClick={startEdit} className="text-xs text-forest hover:underline font-semibold shrink-0">
+          Edit
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex flex-col gap-1">
+      <input
+        type="tel"
+        value={value}
+        onChange={(e) => setValue(formatPhone(e.target.value))}
+        autoFocus
+        placeholder="(555) 555-5555"
+        className="border border-silver rounded-lg px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-forest w-full"
+      />
+      {error && <span className="text-xs text-[#CC0131]">{error}</span>}
+      <span className="flex gap-2">
+        <button onClick={handleSave} disabled={saving} className="text-xs font-bold text-forest hover:underline disabled:opacity-60">
+          {saving ? '…' : 'Save'}
+        </button>
+        <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+      </span>
+    </span>
+  )
+}
+
 // ── Handicap inline edit ──────────────────────────────────────────────────────
 function HandicapInline({ userId, currentStrokes, onSaved }) {
   const [editing, setEditing] = useState(false)
@@ -453,6 +519,10 @@ export default function ManageUsers() {
     setUsers((us) => us.map((u) => (u.user_id === userId ? { ...u, email: newEmail } : u)))
   }
 
+  function handlePhoneSaved(userId, newPhone) {
+    setUsers((us) => us.map((u) => (u.user_id === userId ? { ...u, phone: newPhone } : u)))
+  }
+
   function handleHandicapSaved(userId, newStrokes) {
     setHandicaps((prev) => {
       const closed = prev.map((h) =>
@@ -677,8 +747,12 @@ export default function ManageUsers() {
                               onSaved={handleEmailSaved}
                             />
                           </td>
-                          <td className="hidden md:table-cell px-3 py-2.5 text-gray-600 whitespace-nowrap">
-                            {u.phone || <span className="text-gray-300">—</span>}
+                          <td className="hidden md:table-cell px-3 py-2.5 whitespace-nowrap">
+                            <PhoneInline
+                              userId={u.user_id}
+                              currentPhone={u.phone}
+                              onSaved={handlePhoneSaved}
+                            />
                           </td>
                           <td className="hidden md:table-cell px-3 py-2.5 text-gray-500 whitespace-nowrap">
                             {fmtJoined(u.created_at)}
@@ -691,6 +765,16 @@ export default function ManageUsers() {
                             />
                           </td>
                           <td className="hidden md:table-cell px-3 py-2.5">
+                            <StatusBadge
+                              status={acctStatus}
+                              options={statusOptions}
+                              onSelect={(val) => handleStatusChange(u.user_id, val)}
+                              disabled={isDisabled}
+                            />
+                          </td>
+
+                          {/* Status — mobile only (desktop has its own column) */}
+                          <td className="md:hidden px-3 py-2.5">
                             <StatusBadge
                               status={acctStatus}
                               options={statusOptions}
@@ -796,7 +880,11 @@ export default function ManageUsers() {
                                 <div className="grid grid-cols-2 gap-3">
                                   <div>
                                     <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Phone</p>
-                                    <p className="text-sm text-gray-700">{u.phone || <span className="text-gray-300">—</span>}</p>
+                                    <PhoneInline
+                                      userId={u.user_id}
+                                      currentPhone={u.phone}
+                                      onSaved={handlePhoneSaved}
+                                    />
                                   </div>
                                   <div>
                                     <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">User Since</p>
@@ -1039,10 +1127,11 @@ export default function ManageUsers() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Phone (optional)</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Phone</label>
             <input
               type="tel"
               value={invite.phone}
+              required
               placeholder="(XXX) XXX-XXXX"
               onChange={(e) => setInvite((i) => ({ ...i, phone: formatPhone(e.target.value) }))}
               className="w-full border border-silver rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest"

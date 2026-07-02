@@ -40,9 +40,22 @@ export default function Login() {
     password: '', confirm_password: '', notes: '',
     website: '', // honeypot — never shown to real users
   })
+  const [invitedById, setInvitedById] = useState('')
+  const [players, setPlayers] = useState([])
   const [regError, setRegError] = useState(null)
   const [regLoading, setRegLoading] = useState(false)
   const [regDone, setRegDone] = useState(false)
+
+  useEffect(() => {
+    api.get('/users/public')
+      .then(data => {
+        const sorted = [...data].sort((a, b) =>
+          a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
+        )
+        setPlayers(sorted)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (user) navigate(from, { replace: true })
@@ -106,6 +119,7 @@ export default function Login() {
         password: reg.password,
         notes: reg.notes,
         website: reg.website,
+        invited_by_id: invitedById || null,
       })
       setRegDone(true)
     } catch (err) {
@@ -117,7 +131,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-cream flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-sm space-y-4">
+      <div className={`w-full space-y-4 transition-all ${tab === 'register' ? 'max-w-sm md:max-w-2xl' : 'max-w-sm'}`}>
         <div className="bg-white rounded-2xl border border-silver shadow-sm overflow-hidden">
           {/* Logo + heading */}
           <div className="text-center space-y-3 pt-8 px-8">
@@ -231,6 +245,7 @@ export default function Login() {
                 </div>
               ) : (
                 <form onSubmit={handleRegister} className="space-y-4">
+                  {/* Row 1: Name */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-bold text-gray-800 mb-1">First Name</label>
@@ -258,72 +273,98 @@ export default function Login() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-bold text-gray-800 mb-1">Email</label>
-                    <input
-                      type="email"
-                      name="email"
-                      value={reg.email}
-                      onChange={handleRegChange}
-                      required
-                      autoComplete="email"
-                      className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-                    />
+                  {/* Row 2: Email + Phone */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-800 mb-1">Email</label>
+                      <input
+                        type="email"
+                        name="email"
+                        value={reg.email}
+                        onChange={handleRegChange}
+                        required
+                        autoComplete="email"
+                        className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-800 mb-1">Phone</label>
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={reg.phone}
+                        onChange={handleRegChange}
+                        required
+                        autoComplete="tel"
+                        placeholder="(555) 555-5555"
+                        className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-bold text-gray-800 mb-1">
-                      Phone <span className="font-normal text-gray-400">(optional)</span>
-                    </label>
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={reg.phone}
-                      onChange={handleRegChange}
-                      autoComplete="tel"
-                      placeholder="(555) 555-5555"
-                      className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-                    />
+                  {/* Row 3: Password + Confirm */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-800 mb-1">Password</label>
+                      <input
+                        type="password"
+                        name="password"
+                        value={reg.password}
+                        onChange={handleRegChange}
+                        required
+                        autoComplete="new-password"
+                        className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-800 mb-1">Confirm Password</label>
+                      <input
+                        type="password"
+                        name="confirm_password"
+                        value={reg.confirm_password}
+                        onChange={handleRegChange}
+                        required
+                        autoComplete="new-password"
+                        className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-bold text-gray-800 mb-1">Password</label>
-                    <input
-                      type="password"
-                      name="password"
-                      value={reg.password}
-                      onChange={handleRegChange}
-                      required
-                      autoComplete="new-password"
-                      className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-bold text-gray-800 mb-1">Confirm Password</label>
-                    <input
-                      type="password"
-                      name="confirm_password"
-                      value={reg.confirm_password}
-                      onChange={handleRegChange}
-                      required
-                      autoComplete="new-password"
-                      className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-bold text-gray-800 mb-1">
-                      Notes <span className="font-normal text-gray-400">(optional)</span>
-                    </label>
-                    <textarea
-                      name="notes"
-                      value={reg.notes}
-                      onChange={handleRegChange}
-                      rows={3}
-                      placeholder="How did you hear about us? Anything you'd like us to know?"
-                      className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest resize-none"
-                    />
+                  {/* Row 4: Who invited you + Notes */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-800 mb-1">
+                        Who invited you? <span className="text-[#CC0131]">*</span>
+                      </label>
+                      <select
+                        value={invitedById}
+                        onChange={(e) => setInvitedById(e.target.value)}
+                        className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest bg-white"
+                      >
+                        <option value="">Select a player…</option>
+                        {players.map(p => (
+                          <option key={p.user_id} value={p.user_id}>
+                            {p.first_name} {p.last_name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1.5 text-xs text-gray-400">
+                        We're a word-of-mouth community — let us know who brought you in!
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-800 mb-1">
+                        Notes <span className="font-normal text-gray-400">(optional)</span>
+                      </label>
+                      <textarea
+                        name="notes"
+                        value={reg.notes}
+                        onChange={handleRegChange}
+                        rows={3}
+                        placeholder="How did you hear about us? Anything you'd like us to know?"
+                        className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest resize-none"
+                      />
+                    </div>
                   </div>
 
                   {/* Honeypot — visually hidden, real users never interact with it */}

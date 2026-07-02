@@ -60,6 +60,7 @@ def send_email(
     subject: str,
     body: str,
     reply_to: str | None = None,
+    cc: str | None = None,
 ) -> bool:
     """Send a plain-text email via the Gmail API. Returns True on success, False on failure."""
     try:
@@ -71,6 +72,8 @@ def send_email(
         msg["Subject"] = subject
         if reply_to:
             msg["Reply-To"] = reply_to
+        if cc:
+            msg["Cc"] = cc
 
         # Gmail API requires base64url encoding
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()

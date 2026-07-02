@@ -13,8 +13,21 @@ export default function AcceptInvite() {
 
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [invitedById, setInvitedById] = useState('')
+  const [players, setPlayers] = useState([])
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    api.get('/users/public')
+      .then(data => {
+        const sorted = [...data].sort((a, b) =>
+          a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
+        )
+        setPlayers(sorted)
+      })
+      .catch(() => {})
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -25,7 +38,11 @@ export default function AcceptInvite() {
     setError(null)
     setLoading(true)
     try {
-      await api.post('/auth/accept-invite', { token, password })
+      await api.post('/auth/accept-invite', {
+        token,
+        password,
+        invited_by_id: invitedById || null,
+      })
       navigate('/login')
     } catch (err) {
       setError(err.message || 'Something went wrong')
@@ -81,6 +98,28 @@ export default function AcceptInvite() {
               autoComplete="new-password"
               className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-bold text-gray-800 mb-1">
+              Who invited you?{' '}
+              <span className="text-[#CC0131]">*</span>
+            </label>
+            <select
+              value={invitedById}
+              onChange={(e) => setInvitedById(e.target.value)}
+              className="w-full border border-silver rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-forest bg-white appearance-none"
+            >
+              <option value="">Select a player…</option>
+              {players.map(p => (
+                <option key={p.user_id} value={p.user_id}>
+                  {p.first_name} {p.last_name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-gray-400">
+              We're a word-of-mouth community — let us know who brought you in!
+            </p>
           </div>
 
           {error && <p className="text-[#CC0131] text-sm font-medium">{error}</p>}

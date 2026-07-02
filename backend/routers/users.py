@@ -17,9 +17,10 @@ class RegisterRequest(BaseModel):
     first_name: str
     last_name: str
     email: str
-    phone: str = ""
+    phone: str
     password: str
     notes: str = ""
+    invited_by_id: str | None = None
     # honeypot — must be empty; bots fill it in
     website: str = ""
 
@@ -28,7 +29,7 @@ class InviteRequest(BaseModel):
     first_name: str
     last_name: str
     email: str
-    phone: str = ""
+    phone: str
     role: str = "player"
 
 
@@ -77,8 +78,8 @@ def register_user(body: RegisterRequest):
 
     sheets.insert_user({
         "user_id": user_id,
-        "first_name": body.first_name,
-        "last_name": body.last_name,
+        "first_name": body.first_name.strip().title(),
+        "last_name": body.last_name.strip().title(),
         "email": body.email,
         "phone": body.phone,
         "password_hash": hashed,
@@ -86,7 +87,14 @@ def register_user(body: RegisterRequest):
         "role": "player",
         "status": "pending_review",
         "created_at": now,
+        "invited_by": body.invited_by_id or None,
     })
+
+    inviter_name = "—"
+    if body.invited_by_id:
+        inviter = sheets.get_user_by_id(body.invited_by_id)
+        if inviter:
+            inviter_name = f"{inviter.get('first_name', '')} {inviter.get('last_name', '')}".strip()
 
     admin_url = f"{FRONTEND_URL}/admin/users?tab=pending"
     email_utils.send_email(
@@ -96,6 +104,7 @@ def register_user(body: RegisterRequest):
         f"Name: {body.first_name} {body.last_name}\n"
         f"Email: {body.email}\n"
         f"Phone: {body.phone or '—'}\n"
+        f"Invited by: {inviter_name}\n"
         f"Notes: {body.notes or '—'}\n\n"
         f"Review and approve or reject the request here:\n{admin_url}",
         reply_to=body.email,
@@ -163,8 +172,8 @@ def invite_user(body: InviteRequest, current_user: dict = Depends(require_admin)
 
     sheets.insert_user({
         "user_id": user_id,
-        "first_name": body.first_name,
-        "last_name": body.last_name,
+        "first_name": body.first_name.strip().title(),
+        "last_name": body.last_name.strip().title(),
         "email": body.email,
         "phone": body.phone,
         "password_hash": "",
@@ -172,6 +181,7 @@ def invite_user(body: InviteRequest, current_user: dict = Depends(require_admin)
         "role": body.role,
         "status": "active",
         "created_at": now,
+        "invited_by": None,
     })
 
     invite_url = f"{FRONTEND_URL}/accept-invite?token={token}"
