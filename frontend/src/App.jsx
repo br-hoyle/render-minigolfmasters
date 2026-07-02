@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 
 import Home from './pages/Home'
+import About from './pages/About'
 import Contact from './pages/Contact'
 import Login from './pages/Login'
 import AcceptInvite from './pages/AcceptInvite'
@@ -51,6 +52,7 @@ export default function App() {
             <Route path="/courses/:courseId" element={<CourseDetail />} />
             <Route path="/players" element={<Players />} />
             <Route path="/players/:userId" element={<PlayerStats />} />
+            <Route path="/about" element={<About />} />
 
             {/* Player */}
             <Route element={<ProtectedRoute />}>

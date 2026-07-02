@@ -79,8 +79,8 @@ export default function Layout() {
                   <Link to="/players" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
                     Players
                   </Link>
-                  <Link to="/contact" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
-                    Contact Us
+                  <Link to="/about" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors">
+                    About
                   </Link>
                   {user && (
                     <Link to="/registrations" onClick={() => setMenuOpen(false)} className="block px-5 py-3 text-forest font-semibold hover:bg-cream transition-colors border-t border-silver mt-1">
