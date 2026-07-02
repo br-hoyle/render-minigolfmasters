@@ -22,6 +22,7 @@ class LoginResponse(BaseModel):
 class AcceptInviteRequest(BaseModel):
     token: str
     password: str
+    invited_by_id: str | None = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -72,7 +73,24 @@ def accept_invite(body: AcceptInviteRequest):
     if user.get("password_hash"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite already used")
     hashed = auth_utils.hash_password(body.password)
-    sheets.update_user(user["user_id"], {"password_hash": hashed, "invite_token": ""})
+    updates = {"password_hash": hashed, "invite_token": ""}
+    if body.invited_by_id:
+        updates["invited_by"] = body.invited_by_id
+    sheets.update_user(user["user_id"], updates)
+
+    inviter_email = None
+    if body.invited_by_id:
+        inviter = sheets.get_user_by_id(body.invited_by_id)
+        if inviter and inviter.get("email"):
+            inviter_email = inviter["email"]
+
+    email_utils.send_email(
+        user["email"],
+        "Welcome to Mini Golf Masters!",
+        f"Hi {user.get('first_name', '')},\n\nYour Mini Golf Masters account is all set — welcome to the community!\n\nHead to {FRONTEND_URL}/login to sign in and get started.\n\nSee you on the course!",
+        cc=inviter_email,
+    )
+
     return {"detail": "Account created"}
 
 

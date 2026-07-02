@@ -151,10 +151,11 @@ def insert_user(row: dict) -> None:
             """
             INSERT INTO users
                 (user_id, first_name, last_name, email, phone,
-                 password_hash, invite_token, role, status, created_at)
+                 password_hash, invite_token, role, status, created_at, invited_by)
             VALUES
                 (%(user_id)s, %(first_name)s, %(last_name)s, %(email)s, %(phone)s,
-                 %(password_hash)s, %(invite_token)s, %(role)s, %(status)s, %(created_at)s)
+                 %(password_hash)s, %(invite_token)s, %(role)s, %(status)s, %(created_at)s,
+                 %(invited_by)s)
             """,
             row,
         )
