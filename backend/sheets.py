@@ -11,34 +11,46 @@ from datetime import date, datetime
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 
 from config import DATABASE_URL
 
 # ---------------------------------------------------------------------------
-# Connection — module-level singleton with automatic reconnect
+# Connection pool — FastAPI runs sync route handlers in a thread pool, so
+# many requests can be in flight concurrently. A single shared connection
+# can't safely handle overlapping queries from different threads (libpq only
+# allows one command in flight per connection), so each request borrows its
+# own connection from a small pool and returns it when done.
+#
+# maxconn=50: Render's free tier runs a single instance, and Starlette's
+# threadpool for sync route handlers caps at 40 concurrent threads by
+# default — 50 covers that ceiling with room to spare while staying under
+# Supabase's free-tier limit of 60 direct connections.
 # ---------------------------------------------------------------------------
 
-_conn = None
+_pool = psycopg2.pool.ThreadedConnectionPool(1, 50, DATABASE_URL)
 
 
-def _get_conn():
-    global _conn
-    try:
-        if _conn is None or _conn.closed:
-            raise Exception("reconnect")
-        # Cheap liveness check
-        _conn.cursor().execute("SELECT 1")
-    except Exception:
-        _conn = psycopg2.connect(DATABASE_URL)
-        _conn.autocommit = True
-    return _conn
+class DatabaseBusyError(Exception):
+    """Raised when the connection pool has no connections left to hand out."""
 
 
 @contextmanager
 def _cursor():
-    conn = _get_conn()
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        yield cur
+    try:
+        conn = _pool.getconn()
+    except psycopg2.pool.PoolError as exc:
+        raise DatabaseBusyError() from exc
+    conn.autocommit = True
+    ok = False
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            yield cur
+        ok = True
+    finally:
+        # Discard (rather than return) a connection that errored — it may be
+        # in a broken state. The pool lazily opens a fresh one on next use.
+        _pool.putconn(conn, close=not ok)
 
 
 # ---------------------------------------------------------------------------
