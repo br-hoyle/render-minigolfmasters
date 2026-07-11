@@ -1,10 +1,20 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from config import FRONTEND_URL
 from routers import auth, users, tournaments, registrations, rounds, courses, pars, handicaps, scores, contact, handicap_requests
+from sheets import DatabaseBusyError
 
 app = FastAPI(title="Mini Golf Masters API")
+
+
+@app.exception_handler(DatabaseBusyError)
+def handle_database_busy(request: Request, exc: DatabaseBusyError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Hit max database connections. Please try again later."},
+    )
 
 app.add_middleware(
     CORSMiddleware,

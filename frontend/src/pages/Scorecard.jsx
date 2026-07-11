@@ -159,8 +159,12 @@ export default function Scorecard() {
         })
         return
       }
-      // Offline: queue and advance optimistically
-      if (!navigator.onLine) {
+      // Offline or unreachable server: queue and advance optimistically.
+      // navigator.onLine only reflects device connectivity, not whether the
+      // request actually reached the backend — on spotty course signal the
+      // device can report "online" while every fetch still fails, so also
+      // treat any network-layer failure (no HTTP status) as offline.
+      if (!navigator.onLine || err.status === undefined) {
         queueScores({
           scores: [{
             registration_id: registrationId,
@@ -212,7 +216,7 @@ export default function Scorecard() {
       await api.post('/scores/', { scores: scoreItems })
       navigate('/registrations')
     } catch (err) {
-      if (!navigator.onLine) {
+      if (!navigator.onLine || err.status === undefined) {
         queueScores({ scores: scoreItems })
         setPendingSync(true)
         navigate('/registrations')
@@ -238,7 +242,7 @@ export default function Scorecard() {
       await api.post('/scores/', { scores: scoreItems })
       navigate('/registrations')
     } catch (err) {
-      if (!navigator.onLine) {
+      if (!navigator.onLine || err.status === undefined) {
         queueScores({ scores: scoreItems })
         setPendingSync(true)
         navigate('/registrations')
@@ -328,10 +332,12 @@ export default function Scorecard() {
     }
   }
 
-  function goToNext() {
+  async function goToNext() {
     setSaveError(null)
     if (currentHoleIndex < holes.length - 1) {
-      setCurrentHoleIndex(currentHoleIndex + 1)
+      setIsSaving(true)
+      await saveScore(holeId, score, false)
+      setIsSaving(false)
     }
   }
 
@@ -617,7 +623,7 @@ export default function Scorecard() {
             </button>
             <button
               onClick={goToNext}
-              disabled={isLast}
+              disabled={isLast || isSaving}
               className="bg-forest border border-white/50 text-white/90 rounded-xl py-3 text-sm font-semibold text-center cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-30"
             >
               Next Hole →
