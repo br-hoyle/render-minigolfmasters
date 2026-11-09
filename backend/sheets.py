@@ -5,6 +5,7 @@ This is the ONLY file that imports or calls the database.
 All routers call helper functions defined here.
 """
 
+import threading
 import time
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -26,9 +27,24 @@ from config import DATABASE_URL
 # threadpool for sync route handlers caps at 40 concurrent threads by
 # default — 50 covers that ceiling with room to spare while staying under
 # Supabase's free-tier limit of 60 direct connections.
+#
+# Created lazily (on first actual DB access), not at import time — so this
+# module can be imported, and its pure helpers (like the cache below) unit
+# tested, without a reachable database.
 # ---------------------------------------------------------------------------
 
-_pool = psycopg2.pool.ThreadedConnectionPool(1, 50, DATABASE_URL)
+_pool: psycopg2.pool.ThreadedConnectionPool | None = None
+_pool_init_lock = threading.Lock()
+
+
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+    global _pool
+    if _pool is not None:
+        return _pool
+    with _pool_init_lock:
+        if _pool is None:
+            _pool = psycopg2.pool.ThreadedConnectionPool(1, 50, DATABASE_URL)
+        return _pool
 
 
 class DatabaseBusyError(Exception):
@@ -45,8 +61,9 @@ class ScoreVersionConflict(Exception):
 
 @contextmanager
 def _cursor():
+    pool = _get_pool()
     try:
-        conn = _pool.getconn()
+        conn = pool.getconn()
     except psycopg2.pool.PoolError as exc:
         raise DatabaseBusyError() from exc
     conn.autocommit = True
@@ -58,7 +75,7 @@ def _cursor():
     finally:
         # Discard (rather than return) a connection that errored — it may be
         # in a broken state. The pool lazily opens a fresh one on next use.
-        _pool.putconn(conn, close=not ok)
+        pool.putconn(conn, close=not ok)
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +107,19 @@ def _coerce_rows(rows) -> list[dict]:
 # ---------------------------------------------------------------------------
 # In-memory TTL cache — reduces DB round-trips during active tournaments.
 # Writes call _invalidate() so the next read always fetches fresh data.
+#
+# Correctness under concurrency:
+#   - Single-flight: a per-key lock means only one thread refetches a given
+#     key at a time; others reuse whatever it fetches instead of each
+#     issuing their own identical query (avoids a "cache miss stampede"
+#     when many requests land at once, e.g. everyone checking the
+#     leaderboard right after a score is submitted).
+#   - Generation counter: each key has a generation, bumped by every
+#     _invalidate() call. A fetch records the generation *before* querying
+#     and only stores its result if the generation is still the same
+#     afterwards. Without this, a slow fetch that started just before a
+#     write could finish after the write and overwrite the cache with
+#     stale pre-write data for the rest of the TTL.
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL: dict[str, int] = {
@@ -106,18 +136,38 @@ _CACHE_TTL: dict[str, int] = {
 }
 
 _cache: dict[str, dict] = {}
+_cache_generations: dict[str, int] = {}
+_cache_locks: dict[str, threading.Lock] = {}
+_cache_locks_guard = threading.Lock()
+
+
+def _lock_for(key: str) -> threading.Lock:
+    """Lazily create (and remember) one lock per cache key."""
+    lock = _cache_locks.get(key)
+    if lock is not None:
+        return lock
+    with _cache_locks_guard:
+        lock = _cache_locks.setdefault(key, threading.Lock())
+    return lock
 
 
 def _get_cached(table: str, query_fn) -> list[dict]:
     entry = _cache.get(table)
     if entry and (time.monotonic() - entry["ts"]) < _CACHE_TTL[table]:
         return entry["data"]
-    fresh = query_fn()
-    _cache[table] = {"data": fresh, "ts": time.monotonic()}
-    return fresh
+    with _lock_for(table):
+        entry = _cache.get(table)
+        if entry and (time.monotonic() - entry["ts"]) < _CACHE_TTL[table]:
+            return entry["data"]
+        generation = _cache_generations.get(table, 0)
+        fresh = query_fn()
+        if _cache_generations.get(table, 0) == generation:
+            _cache[table] = {"data": fresh, "ts": time.monotonic()}
+        return fresh
 
 
 def _invalidate(table: str) -> None:
+    _cache_generations[table] = _cache_generations.get(table, 0) + 1
     _cache.pop(table, None)
 
 
@@ -127,23 +177,44 @@ def _invalidate(table: str) -> None:
 # constantly during an active round; invalidating every scoped key on any
 # write is simplest and acceptable now that each entry is small (a single
 # tournament or round's scores, not every score ever played).
+#
+# Invalidation is coarse (every scoped key at once) and a write doesn't know
+# in advance every key that might be mid-fetch for the data it just changed
+# (e.g. a key for a tournament_id that's never been queried before isn't in
+# _scores_cache yet, so there'd be nothing there to bump). A single *global*
+# generation counter for the whole scores cache sidesteps that: every
+# in-flight fetch, for any key, compares against the same counter, so any
+# invalidation — regardless of which key triggered it — is visible to all
+# of them.
 # ---------------------------------------------------------------------------
 
 _SCORES_CACHE_TTL = 8
 _scores_cache: dict[str, dict] = {}
+_scores_cache_generation = 0
+_scores_cache_guard = threading.Lock()
 
 
 def _get_scores_cached(key: str, query_fn) -> list[dict]:
     entry = _scores_cache.get(key)
     if entry and (time.monotonic() - entry["ts"]) < _SCORES_CACHE_TTL:
         return entry["data"]
-    fresh = query_fn()
-    _scores_cache[key] = {"data": fresh, "ts": time.monotonic()}
-    return fresh
+    with _lock_for(key):
+        entry = _scores_cache.get(key)
+        if entry and (time.monotonic() - entry["ts"]) < _SCORES_CACHE_TTL:
+            return entry["data"]
+        generation = _scores_cache_generation
+        fresh = query_fn()
+        with _scores_cache_guard:
+            if _scores_cache_generation == generation:
+                _scores_cache[key] = {"data": fresh, "ts": time.monotonic()}
+        return fresh
 
 
 def _invalidate_scores_cache() -> None:
-    _scores_cache.clear()
+    global _scores_cache_generation
+    with _scores_cache_guard:
+        _scores_cache_generation += 1
+        _scores_cache.clear()
 
 
 # ---------------------------------------------------------------------------
