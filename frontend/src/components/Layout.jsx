@@ -1,27 +1,75 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getQueuedScores } from '../utils/offlineQueue'
+import { api } from '../api/client'
+import {
+  getQueuedScores,
+  getNeedsReview,
+  getFailedSync,
+  dismissFailedSync,
+  syncQueue,
+} from '../utils/offlineQueue'
+
+const SYNC_POLL_MS = 30000
 
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [pendingSync, setPendingSync] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
+  const [reviewItems, setReviewItems] = useState([])
+  const [failedItems, setFailedItems] = useState([])
 
-  useEffect(() => {
-    function checkQueue() {
-      setPendingSync(getQueuedScores().length > 0)
-    }
-    checkQueue()
-    window.addEventListener('mgm-offline-queue-changed', checkQueue)
-    return () => window.removeEventListener('mgm-offline-queue-changed', checkQueue)
+  const refreshCounts = useCallback(() => {
+    setPendingCount(getQueuedScores().length)
+    setReviewItems(getNeedsReview())
+    setFailedItems(getFailedSync())
   }, [])
+
+  // Keep the banners in sync with whatever Scorecard (or another tab) does
+  // to the queue.
+  useEffect(() => {
+    refreshCounts()
+    window.addEventListener('mgm-offline-queue-changed', refreshCounts)
+    window.addEventListener('storage', refreshCounts)
+    return () => {
+      window.removeEventListener('mgm-offline-queue-changed', refreshCounts)
+      window.removeEventListener('storage', refreshCounts)
+    }
+  }, [refreshCounts])
+
+  // Attempt a sync on load, whenever the device comes back online, whenever
+  // the tab becomes visible again, and periodically while anything is
+  // queued — not just when a player happens to have Scorecard open.
+  useEffect(() => {
+    function attemptSync() {
+      syncQueue((path, body) => api.post(path, body)).then(refreshCounts)
+    }
+    attemptSync()
+    function onVisible() {
+      if (document.visibilityState === 'visible') attemptSync()
+    }
+    window.addEventListener('online', attemptSync)
+    document.addEventListener('visibilitychange', onVisible)
+    const interval = setInterval(() => {
+      if (getQueuedScores().length > 0) attemptSync()
+    }, SYNC_POLL_MS)
+    return () => {
+      window.removeEventListener('online', attemptSync)
+      document.removeEventListener('visibilitychange', onVisible)
+      clearInterval(interval)
+    }
+  }, [refreshCounts])
 
   function handleLogout() {
     logout()
     navigate('/')
   }
+
+  const reviewLink = reviewItems.length > 0
+    ? `/scorecard/${reviewItems[0].registration_id}/${reviewItems[0].round_id}`
+    : '/registrations'
+  const failedReason = failedItems[0]?.reason || 'round locked'
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -104,10 +152,31 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* Offline sync banner */}
-      {pendingSync && (
+      {/* Offline sync banners */}
+      {pendingCount > 0 && (
         <div className="bg-yellow text-gray-900 text-xs font-semibold text-center py-1.5 px-4">
-          Scores pending sync — connect to the internet to submit
+          {pendingCount} score{pendingCount !== 1 ? 's' : ''} waiting to sync — connect to the internet to submit
+        </div>
+      )}
+      {reviewItems.length > 0 && (
+        <Link
+          to={reviewLink}
+          className="block bg-[#CC0131] text-white text-xs font-semibold text-center py-1.5 px-4 hover:opacity-90 transition-opacity"
+        >
+          {reviewItems.length} score{reviewItems.length !== 1 ? 's' : ''} need your review →
+        </Link>
+      )}
+      {failedItems.length > 0 && (
+        <div className="bg-gray-200 text-gray-700 text-xs font-semibold text-center py-1.5 px-4 flex items-center justify-center gap-3">
+          <span>
+            {failedItems.length} score{failedItems.length !== 1 ? 's' : ''} couldn't be saved: {failedReason}
+          </span>
+          <button
+            onClick={() => { dismissFailedSync(); refreshCounts() }}
+            className="underline underline-offset-2 shrink-0"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

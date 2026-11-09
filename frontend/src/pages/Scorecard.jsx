@@ -3,7 +3,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api/client'
 import ScoreGrid from '../components/ScoreGrid'
 import { Spinner } from '../components/LoadingOverlay'
-import { getQueuedScores, queueScores, syncQueue } from '../utils/offlineQueue'
+import {
+  getQueuedScores,
+  queueScores,
+  removeQueuedScore,
+  getNeedsReview,
+  removeNeedsReview,
+  syncQueue,
+} from '../utils/offlineQueue'
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -76,12 +83,37 @@ export default function Scorecard() {
 
   const activeRoundId = roundId || (allRounds[0]?.round_id)
 
-  // Sync offline queue on mount
+  // Sync offline queue on mount, and keep the local pending banner live as
+  // Layout's own triggers (online/visible/30s poll) change the queue too.
   useEffect(() => {
-    syncQueue((path, body) => api.post(path, body)).then(({ synced }) => {
-      if (synced > 0) setPendingSync(false)
-    })
+    function refreshPending() {
+      setPendingSync(getQueuedScores().length > 0)
+    }
+    refreshPending()
+    window.addEventListener('mgm-offline-queue-changed', refreshPending)
+    syncQueue((path, body) => api.post(path, body)).then(refreshPending)
+    return () => window.removeEventListener('mgm-offline-queue-changed', refreshPending)
   }, [])
+
+  // Re-open the Keep mine / Use theirs dialog for any hole in this round
+  // that a background sync (Layout's triggers) already found a conflict
+  // for, so the player resolves it as soon as they're back on the
+  // scorecard instead of it sitting silently in the "needs review" banner.
+  useEffect(() => {
+    if (!activeRoundId) return
+    const pending = getNeedsReview().filter(
+      (r) => r.registration_id === registrationId && r.round_id === activeRoundId
+    )
+    if (pending.length === 0) return
+    setConflictQueue((q) => (q.length > 0 ? q : pending.map((r) => ({
+      holeId: r.hole_id,
+      strokes: r.strokes,
+      serverStrokes: r.server_strokes,
+      serverVersion: r.server_version,
+      modifiedBy: r.modified_by,
+      source: 'needs_review',
+    }))))
+  }, [registrationId, activeRoundId])
 
   useEffect(() => {
     async function load() {
@@ -176,7 +208,9 @@ export default function Scorecard() {
     markDirty(holeId)
   }
 
-  /** Apply the "saved" items from a bulk response: update versions, clear dirty. */
+  /** Apply the "saved" items from a bulk response: update versions, clear
+   * dirty, and drop any now-stale queued entry for the same hole so it can
+   * never later overwrite this (newer) confirmed value. */
   function applySavedResults(savedList) {
     if (!savedList || savedList.length === 0) return
     setScoreVersions((v) => {
@@ -189,6 +223,7 @@ export default function Scorecard() {
       savedList.forEach((s) => next.delete(s.hole_id))
       return next
     })
+    savedList.forEach((s) => removeQueuedScore(registrationId, activeRoundId, s.hole_id))
   }
 
   function conflictsFromDetail(detail) {
@@ -227,6 +262,7 @@ export default function Scorecard() {
       const saved = res?.scores?.[0]
       setScoreVersions((v) => ({ ...v, [holeId]: saved ? saved.version : (expectedVersion || 1) + 1 }))
       clearDirty(holeId)
+      removeQueuedScore(registrationId, activeRoundId, holeId)
       if (isLast) {
         navigate('/registrations')
       } else {
@@ -378,7 +414,7 @@ export default function Scorecard() {
   async function resolveConflict(keepMine) {
     if (conflictQueue.length === 0) return
     const [current, ...rest] = conflictQueue
-    const { holeId, strokes, serverStrokes, serverVersion } = current
+    const { holeId, strokes, serverStrokes, serverVersion, source } = current
 
     if (keepMine) {
       // Force-save without version check
@@ -390,6 +426,7 @@ export default function Scorecard() {
         const saved = res?.scores?.[0]
         setScoreVersions((v) => ({ ...v, [holeId]: saved ? saved.version : (serverVersion || 1) + 1 }))
         clearDirty(holeId)
+        removeQueuedScore(registrationId, activeRoundId, holeId)
       } catch (err) {
         setSaveError(err.message || 'Failed to save.')
       } finally {
@@ -400,6 +437,11 @@ export default function Scorecard() {
       setScores((s) => ({ ...s, [holeId]: serverStrokes }))
       setScoreVersions((v) => ({ ...v, [holeId]: serverVersion }))
       clearDirty(holeId)
+      removeQueuedScore(registrationId, activeRoundId, holeId)
+    }
+
+    if (source === 'needs_review') {
+      removeNeedsReview(registrationId, activeRoundId, holeId)
     }
 
     if (rest.length > 0) {
