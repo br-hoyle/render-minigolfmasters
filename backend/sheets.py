@@ -93,7 +93,6 @@ def _coerce_rows(rows) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL: dict[str, int] = {
-    "scores":            15,
     "registrations":     30,
     "handicap_requests": 30,
     "tournaments":       60,
@@ -120,6 +119,31 @@ def _get_cached(table: str, query_fn) -> list[dict]:
 
 def _invalidate(table: str) -> None:
     _cache.pop(table, None)
+
+
+# ---------------------------------------------------------------------------
+# Scores cache — scoped by query (tournament/round/registration), not one
+# cache entry for the whole table. A short TTL because scores change
+# constantly during an active round; invalidating every scoped key on any
+# write is simplest and acceptable now that each entry is small (a single
+# tournament or round's scores, not every score ever played).
+# ---------------------------------------------------------------------------
+
+_SCORES_CACHE_TTL = 8
+_scores_cache: dict[str, dict] = {}
+
+
+def _get_scores_cached(key: str, query_fn) -> list[dict]:
+    entry = _scores_cache.get(key)
+    if entry and (time.monotonic() - entry["ts"]) < _SCORES_CACHE_TTL:
+        return entry["data"]
+    fresh = query_fn()
+    _scores_cache[key] = {"data": fresh, "ts": time.monotonic()}
+    return fresh
+
+
+def _invalidate_scores_cache() -> None:
+    _scores_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -506,23 +530,58 @@ def update_registration(registration_id: str, updates: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def get_all_scores() -> list[dict]:
+    """Unscoped — every score ever played. Expensive; admin-only (enforced
+    in the router). Prefer get_scores_by_tournament/_round/_registration."""
     def _fetch():
         with _cursor() as cur:
             cur.execute("SELECT * FROM scores ORDER BY submitted_at DESC")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("scores", _fetch)
+    return _get_scores_cached("scores:all", _fetch)
+
+
+def get_scores_by_tournament(tournament_id: str) -> list[dict]:
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute(
+                """
+                SELECT s.* FROM scores s
+                JOIN rounds r ON r.round_id = s.round_id
+                WHERE r.tournament_id = %s
+                ORDER BY s.submitted_at DESC
+                """,
+                (tournament_id,),
+            )
+            return _coerce_rows(cur.fetchall())
+    return _get_scores_cached(f"scores:tournament:{tournament_id}", _fetch)
 
 
 def get_scores_by_registration(registration_id: str) -> list[dict]:
-    return [s for s in get_all_scores() if s["registration_id"] == registration_id]
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute(
+                "SELECT * FROM scores WHERE registration_id = %s ORDER BY submitted_at DESC",
+                (registration_id,),
+            )
+            return _coerce_rows(cur.fetchall())
+    return _get_scores_cached(f"scores:registration:{registration_id}", _fetch)
 
 
 def get_scores_by_round(round_id: str) -> list[dict]:
-    return [s for s in get_all_scores() if s["round_id"] == round_id]
+    def _fetch():
+        with _cursor() as cur:
+            cur.execute(
+                "SELECT * FROM scores WHERE round_id = %s ORDER BY submitted_at DESC",
+                (round_id,),
+            )
+            return _coerce_rows(cur.fetchall())
+    return _get_scores_cached(f"scores:round:{round_id}", _fetch)
 
 
 def get_score_by_id(score_id: str) -> dict | None:
-    return next((s for s in get_all_scores() if s["score_id"] == score_id), None)
+    with _cursor() as cur:
+        cur.execute("SELECT * FROM scores WHERE score_id = %s", (score_id,))
+        row = cur.fetchone()
+        return _coerce(row) if row else None
 
 
 def insert_score(row: dict) -> None:
@@ -538,14 +597,14 @@ def insert_score(row: dict) -> None:
             """,
             row,
         )
-    _invalidate("scores")
+    _invalidate_scores_cache()
 
 
 def update_score(score_id: str, updates: dict) -> None:
     clause, vals = _build_set(updates)
     with _cursor() as cur:
         cur.execute(f"UPDATE scores SET {clause} WHERE score_id = %s", vals + [score_id])
-    _invalidate("scores")
+    _invalidate_scores_cache()
 
 
 _UPSERT_SCORE_SQL = """
@@ -610,7 +669,7 @@ def upsert_score(
         # was written, so the cache doesn't need invalidating.
         raise ScoreVersionConflict(_coerce(prev_row) if prev_row else {})
 
-    _invalidate("scores")
+    _invalidate_scores_cache()
     return (_coerce(prev_row) if prev_row else None), _coerce(new_row)
 
 

@@ -101,7 +101,7 @@ def get_tournament_recap(tournament_id: str):
     accepted = [r for r in registrations if r["status"] in ("accepted", "forfeit")]
     accepted_reg_ids = {r["registration_id"] for r in accepted}
     rounds = sheets.get_rounds_by_tournament(tournament_id)
-    all_scores = sheets.get_all_scores()
+    all_scores = sheets.get_scores_by_tournament(tournament_id)
     all_pars = sheets.get_all_pars()
     all_handicaps = sheets.get_all_handicaps()
     all_holes = sheets.get_all_holes()

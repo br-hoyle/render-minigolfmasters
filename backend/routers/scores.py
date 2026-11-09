@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 import sheets
-from dependencies import get_current_user, require_admin
+from dependencies import get_current_user, get_current_user_optional, require_admin
 from models.score import Score
 from models.score_audit_log import ScoreAuditLog
 
@@ -25,11 +25,21 @@ class BulkSubmitScoresRequest(BaseModel):
 
 
 @router.get("/", response_model=list[Score])
-def list_scores(registration_id: str | None = None, round_id: str | None = None):
+def list_scores(
+    registration_id: str | None = None,
+    round_id: str | None = None,
+    tournament_id: str | None = None,
+    current_user: dict | None = Depends(get_current_user_optional),
+):
     if registration_id:
         return [Score(**s) for s in sheets.get_scores_by_registration(registration_id)]
     if round_id:
         return [Score(**s) for s in sheets.get_scores_by_round(round_id)]
+    if tournament_id:
+        return [Score(**s) for s in sheets.get_scores_by_tournament(tournament_id)]
+    # Unfiltered — every score ever played. Admin only.
+    if not current_user or current_user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required to list all scores")
     return [Score(**s) for s in sheets.get_all_scores()]
 
 
