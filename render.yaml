@@ -2,6 +2,7 @@ services:
   - type: web
     name: minigolfmasters-api
     runtime: python
+    region: virginia
     rootDir: backend
     buildCommand: pip install poetry && poetry install --no-root
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
