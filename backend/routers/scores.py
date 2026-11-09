@@ -36,14 +36,14 @@ def list_scores(registration_id: str | None = None, round_id: str | None = None)
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def submit_scores(body: BulkSubmitScoresRequest, current_user: dict = Depends(get_current_user)):
     now = datetime.now(tz=timezone.utc).isoformat()
-    results = []
 
+    # --- Validate every item first. Any 403/404 aborts before any write. ---
+    validated = []  # (item, reg, is_privileged)
     for item in body.scores:
         reg = sheets.get_registration_by_id(item.registration_id)
         if not reg:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Registration {item.registration_id} not found")
 
-        # Check tournament is active
         tournament = sheets.get_tournament_by_id(reg["tournament_id"])
         if not tournament:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tournament not found")
@@ -56,37 +56,20 @@ def submit_scores(body: BulkSubmitScoresRequest, current_user: dict = Depends(ge
         if reg["user_id"] != current_user["user_id"] and not is_privileged:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot submit scores for another player")
 
-        # Check round lock
         round_data = sheets.get_round_by_id(item.round_id)
         if round_data and str(round_data.get("locked", "")).lower() == "true" and not is_privileged:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Round is locked")
 
-        # Version conflict check
-        if item.expected_version is not None:
-            existing_scores = sheets.get_all_scores()
-            existing = next(
-                (s for s in existing_scores
-                 if s["registration_id"] == item.registration_id
-                 and s["round_id"] == item.round_id
-                 and s["hole_id"] == item.hole_id),
-                None,
-            )
-            if existing:
-                current_version = int(existing.get("version") or 1)
-                if current_version != item.expected_version:
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail={
-                            "message": "Score was modified by another user",
-                            "current_strokes": int(existing["strokes"]),
-                            "current_version": current_version,
-                            "modified_by": existing.get("last_modified_by", ""),
-                        },
-                    )
+        validated.append((item, reg, is_privileged))
 
-        score_id = str(uuid.uuid4())
+    # --- Write each item independently; the version check happens
+    # atomically with the write in sheets.upsert_score, not against a
+    # possibly-stale cached read. ---
+    saved = []
+    conflicts = []
+    for item, reg, is_privileged in validated:
         row = {
-            "score_id": score_id,
+            "score_id": str(uuid.uuid4()),
             "user_id": reg["user_id"],
             "registration_id": item.registration_id,
             "round_id": item.round_id,
@@ -95,9 +78,21 @@ def submit_scores(body: BulkSubmitScoresRequest, current_user: dict = Depends(ge
             "submitted_at": now,
             "last_modified_by": current_user["user_id"],
             "last_modified_at": now,
-            "version": 1,
         }
-        previous, _ = sheets.upsert_score(item.registration_id, item.round_id, item.hole_id, row)
+        try:
+            previous, new_row = sheets.upsert_score(
+                item.registration_id, item.round_id, item.hole_id, row,
+                expected_version=item.expected_version,
+            )
+        except sheets.ScoreVersionConflict as exc:
+            current = exc.current_row
+            conflicts.append({
+                "hole_id": item.hole_id,
+                "current_strokes": int(current.get("strokes") or 0),
+                "current_version": int(current.get("version") or 1),
+                "modified_by": current.get("last_modified_by", ""),
+            })
+            continue
 
         # Audit log for privileged overrides of another player's score
         if is_privileged and reg["user_id"] != current_user["user_id"] and previous:
@@ -110,9 +105,28 @@ def submit_scores(body: BulkSubmitScoresRequest, current_user: dict = Depends(ge
                 "modified_at": now,
             })
 
-        results.append(row)
+        saved.append({
+            "hole_id": new_row["hole_id"],
+            "round_id": new_row["round_id"],
+            "registration_id": new_row["registration_id"],
+            "strokes": int(new_row["strokes"]),
+            "version": int(new_row["version"]),
+            "last_modified_by": new_row["last_modified_by"],
+        })
 
-    return {"submitted": len(results)}
+    if conflicts:
+        detail = {
+            "message": "Some scores were modified by another user",
+            "saved": saved,
+            "conflicts": conflicts,
+        }
+        if len(body.scores) == 1:
+            # Keep the original single-item conflict shape for callers that
+            # haven't been updated to the multi-conflict shape yet.
+            detail.update(conflicts[0])
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+    return {"submitted": len(saved), "scores": saved}
 
 
 @router.get("/{score_id}/audit", response_model=list[ScoreAuditLog])

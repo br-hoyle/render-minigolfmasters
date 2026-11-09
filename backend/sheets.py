@@ -35,6 +35,14 @@ class DatabaseBusyError(Exception):
     """Raised when the connection pool has no connections left to hand out."""
 
 
+class ScoreVersionConflict(Exception):
+    """Raised when upsert_score's expected_version doesn't match the current row."""
+
+    def __init__(self, current_row: dict):
+        self.current_row = current_row
+        super().__init__("Score was modified by another user")
+
+
 @contextmanager
 def _cursor():
     try:
@@ -540,44 +548,70 @@ def update_score(score_id: str, updates: dict) -> None:
     _invalidate("scores")
 
 
-def upsert_score(registration_id: str, round_id: str, hole_id: str, row: dict) -> tuple[dict | None, dict]:
-    """
-    Insert or update a score identified by (registration_id, round_id, hole_id).
-    Returns (previous_row_or_None, new_row). The version is incremented on update.
-    """
-    with _cursor() as cur:
-        cur.execute(
-            """
-            SELECT * FROM scores
-            WHERE registration_id = %s AND round_id = %s AND hole_id = %s
-            """,
-            (registration_id, round_id, hole_id),
-        )
-        existing = cur.fetchone()
-    previous = _coerce(existing) if existing else None
+_UPSERT_SCORE_SQL = """
+    WITH prev AS (
+        SELECT * FROM scores
+        WHERE registration_id = %(registration_id)s
+          AND round_id        = %(round_id)s
+          AND hole_id         = %(hole_id)s
+    ),
+    upsert AS (
+        INSERT INTO scores
+            (score_id, user_id, registration_id, round_id, hole_id,
+             strokes, submitted_at, last_modified_by, version)
+        VALUES
+            (%(score_id)s, %(user_id)s, %(registration_id)s, %(round_id)s, %(hole_id)s,
+             %(strokes)s, %(submitted_at)s, %(last_modified_by)s, 1)
+        ON CONFLICT (registration_id, round_id, hole_id) DO UPDATE
+        SET
+            strokes           = EXCLUDED.strokes,
+            last_modified_by  = EXCLUDED.last_modified_by,
+            submitted_at      = EXCLUDED.submitted_at,
+            version           = scores.version + 1
+        WHERE (%(expected_version)s IS NULL OR scores.version = %(expected_version)s)
+        RETURNING *
+    )
+    SELECT
+        (SELECT row_to_json(u) FROM upsert u) AS new_row,
+        (SELECT row_to_json(p) FROM prev p)   AS prev_row
+"""
 
+
+def upsert_score(
+    registration_id: str,
+    round_id: str,
+    hole_id: str,
+    row: dict,
+    expected_version: int | None = None,
+) -> tuple[dict | None, dict]:
+    """
+    Insert or update a score identified by (registration_id, round_id, hole_id),
+    checking expected_version atomically against the write in a single
+    statement on a single connection (safe under Supavisor transaction mode —
+    no session state, no server-side prepared statements).
+
+    Returns (previous_row_or_None, new_row). The version is incremented on
+    update. Raises ScoreVersionConflict if expected_version is given and
+    doesn't match the row's current version — no write happens in that case.
+    """
+    params = {**row, "registration_id": registration_id, "round_id": round_id,
+              "hole_id": hole_id, "expected_version": expected_version}
     with _cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO scores
-                (score_id, user_id, registration_id, round_id, hole_id,
-                 strokes, submitted_at, last_modified_by, version)
-            VALUES
-                (%(score_id)s, %(user_id)s, %(registration_id)s, %(round_id)s, %(hole_id)s,
-                 %(strokes)s, %(submitted_at)s, %(last_modified_by)s, 1)
-            ON CONFLICT (registration_id, round_id, hole_id) DO UPDATE
-            SET
-                strokes           = EXCLUDED.strokes,
-                last_modified_by  = EXCLUDED.last_modified_by,
-                submitted_at      = EXCLUDED.submitted_at,
-                version           = scores.version + 1
-            RETURNING *
-            """,
-            row,
-        )
-        updated = cur.fetchone()
+        cur.execute(_UPSERT_SCORE_SQL, params)
+        result = cur.fetchone()
+
+    new_row = result["new_row"]
+    prev_row = result["prev_row"]
+
+    if new_row is None:
+        # The WHERE clause only skips the update when expected_version was
+        # given and didn't match (when it's None, "IS NULL" makes the WHERE
+        # always true). prev_row holds the current, unmodified row. Nothing
+        # was written, so the cache doesn't need invalidating.
+        raise ScoreVersionConflict(_coerce(prev_row) if prev_row else {})
+
     _invalidate("scores")
-    return previous, _coerce(updated)
+    return (_coerce(prev_row) if prev_row else None), _coerce(new_row)
 
 
 # ---------------------------------------------------------------------------
