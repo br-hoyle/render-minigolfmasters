@@ -12,6 +12,18 @@ export function clearToken() {
   localStorage.removeItem('token')
 }
 
+// AuthContext registers a handler here so that a 401 from *any* request —
+// not just the ones it happens to be watching — clears the stale session.
+// ProtectedRoute then redirects to /login with the current location as
+// `state.from`, and Login navigates back there on success — which is how a
+// player whose JWT expired mid-round gets back to the scorecard to sync
+// whatever got queued while they were logged out.
+let onUnauthorized = null
+
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn
+}
+
 // A write (score submit, registration, etc.) gets a shorter timeout than a
 // read — on bad signal, a stuck write should fail fast enough to fall back
 // to the offline queue instead of leaving the player staring at a spinner.
@@ -45,6 +57,7 @@ async function request(path, options = {}) {
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }))
     const message = typeof error.detail === 'string' ? error.detail : 'Request failed'
+    if (res.status === 401) onUnauthorized?.()
     throw Object.assign(new Error(message), { status: res.status, detail: error.detail })
   }
 
