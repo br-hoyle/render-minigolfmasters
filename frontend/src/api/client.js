@@ -30,7 +30,7 @@ export function setUnauthorizedHandler(fn) {
 const WRITE_TIMEOUT_MS = 15000
 const READ_TIMEOUT_MS = 20000
 
-async function request(path, options = {}) {
+async function request(path, { suppressAuthRedirect, ...options } = {}) {
   const token = getToken()
   const headers = {
     'Content-Type': 'application/json',
@@ -57,7 +57,13 @@ async function request(path, options = {}) {
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }))
     const message = typeof error.detail === 'string' ? error.detail : 'Request failed'
-    if (res.status === 401) onUnauthorized?.()
+    // suppressAuthRedirect: a silent background queue sync shouldn't yank
+    // the player off whatever page they're actively on (and lose anything
+    // they've typed but not yet saved/queued) just because an unrelated,
+    // passive request happened to find a dead token. The player's own
+    // active save attempts don't set this, so those still trigger the
+    // redirect — see Scorecard.jsx's own 401 handling.
+    if (res.status === 401 && !suppressAuthRedirect) onUnauthorized?.()
     throw Object.assign(new Error(message), { status: res.status, detail: error.detail })
   }
 
@@ -66,8 +72,8 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  get: (path) => request(path),
-  post: (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) }),
-  patch: (path, body) => request(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  delete: (path) => request(path, { method: 'DELETE' }),
+  get: (path, opts) => request(path, opts),
+  post: (path, body, opts) => request(path, { method: 'POST', body: JSON.stringify(body), ...opts }),
+  patch: (path, body, opts) => request(path, { method: 'PATCH', body: JSON.stringify(body), ...opts }),
+  delete: (path, opts) => request(path, { method: 'DELETE', ...opts }),
 }

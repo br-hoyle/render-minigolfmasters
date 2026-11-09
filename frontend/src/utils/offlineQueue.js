@@ -49,8 +49,14 @@ function writeList(key, list) {
   localStorage.setItem(key, JSON.stringify(list))
 }
 
-/** Migrate the old array-of-{scores:[...]} payloads into the new per-hole map, once. */
+let oldFormatChecked = false
+
+/** Migrate the old array-of-{scores:[...]} payloads into the new per-hole map.
+ * Only ever does real work once per page load — readQueueMap() otherwise
+ * calls this on every queue read, including Layout's 30s poll, forever. */
 function migrateOldFormatIfPresent() {
+  if (oldFormatChecked) return
+  oldFormatChecked = true
   let old
   try {
     old = JSON.parse(localStorage.getItem(OLD_QUEUE_KEY) || 'null')
@@ -138,6 +144,26 @@ export function removeNeedsReview(registrationId, roundId, holeId) {
   notifyChanged()
 }
 
+/** Read-modify-write a single entry in immediately, rather than batching
+ * reads/writes across a whole doSync() call — doSync awaits one HTTP
+ * request per group, and a batched read-at-start/write-at-end would lose
+ * a concurrent removeNeedsReview() (the player resolving an earlier
+ * conflict while a later group is still in flight) by overwriting it with
+ * the stale copy read before that removal happened. */
+function appendNeedsReview(entry) {
+  const list = readList(REVIEW_KEY)
+  list.push(entry)
+  writeList(REVIEW_KEY, list)
+  notifyChanged()
+}
+
+function appendFailedSync(entry) {
+  const list = readList(FAILED_KEY)
+  list.push(entry)
+  writeList(FAILED_KEY, list)
+  notifyChanged()
+}
+
 /** Items a background sync could not save at all (403/404/400) — surfaced
  * as a dismissible banner with the reason, never retried. */
 export function getFailedSync() {
@@ -181,8 +207,6 @@ async function doSync(postFn) {
 
   let synced = 0
   let failed = 0
-  const needsReview = readList(REVIEW_KEY)
-  const failedList = readList(FAILED_KEY)
 
   for (const groupItems of groups.values()) {
     try {
@@ -217,7 +241,7 @@ async function doSync(postFn) {
           } else if (conflictByHole.has(item.hole_id)) {
             const c = conflictByHole.get(item.hole_id)
             removeQueuedScore(item.registration_id, item.round_id, item.hole_id)
-            needsReview.push({
+            appendNeedsReview({
               registration_id: item.registration_id,
               round_id: item.round_id,
               hole_id: item.hole_id,
@@ -234,7 +258,7 @@ async function doSync(postFn) {
       } else if (status === 403 || status === 404 || status === 400) {
         for (const item of groupItems) {
           removeQueuedScore(item.registration_id, item.round_id, item.hole_id)
-          failedList.push({ ...item, reason: err.message || 'Could not be saved' })
+          appendFailedSync({ ...item, reason: err.message || 'Could not be saved' })
         }
         failed += groupItems.length
       } else {
@@ -244,10 +268,6 @@ async function doSync(postFn) {
       }
     }
   }
-
-  writeList(REVIEW_KEY, needsReview)
-  writeList(FAILED_KEY, failedList)
-  notifyChanged()
 
   return { synced, failed }
 }

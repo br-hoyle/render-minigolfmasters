@@ -43,7 +43,7 @@ export default function Layout() {
   // queued — not just when a player happens to have Scorecard open.
   useEffect(() => {
     function attemptSync() {
-      syncQueue((path, body) => api.post(path, body)).then(refreshCounts)
+      syncQueue((path, body) => api.post(path, body, { suppressAuthRedirect: true })).then(refreshCounts)
     }
     attemptSync()
     function onVisible() {

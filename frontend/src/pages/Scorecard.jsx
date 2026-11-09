@@ -91,7 +91,7 @@ export default function Scorecard() {
     }
     refreshPending()
     window.addEventListener('mgm-offline-queue-changed', refreshPending)
-    syncQueue((path, body) => api.post(path, body)).then(refreshPending)
+    syncQueue((path, body) => api.post(path, body, { suppressAuthRedirect: true })).then(refreshPending)
     return () => window.removeEventListener('mgm-offline-queue-changed', refreshPending)
   }, [])
 
@@ -99,20 +99,29 @@ export default function Scorecard() {
   // that a background sync (Layout's triggers) already found a conflict
   // for, so the player resolves it as soon as they're back on the
   // scorecard instead of it sitting silently in the "needs review" banner.
+  // Re-checks on every queue change, not just on mount/route change — Layout
+  // runs its own sync independently (every 30s, on reconnect, on tab focus)
+  // while this page stays mounted, and a conflict it finds mid-session
+  // should open the dialog immediately rather than waiting for a reload.
   useEffect(() => {
-    if (!activeRoundId) return
-    const pending = getNeedsReview().filter(
-      (r) => r.registration_id === registrationId && r.round_id === activeRoundId
-    )
-    if (pending.length === 0) return
-    setConflictQueue((q) => (q.length > 0 ? q : pending.map((r) => ({
-      holeId: r.hole_id,
-      strokes: r.strokes,
-      serverStrokes: r.server_strokes,
-      serverVersion: r.server_version,
-      modifiedBy: r.modified_by,
-      source: 'needs_review',
-    }))))
+    function checkNeedsReview() {
+      if (!activeRoundId) return
+      const pending = getNeedsReview().filter(
+        (r) => r.registration_id === registrationId && r.round_id === activeRoundId
+      )
+      if (pending.length === 0) return
+      setConflictQueue((q) => (q.length > 0 ? q : pending.map((r) => ({
+        holeId: r.hole_id,
+        strokes: r.strokes,
+        serverStrokes: r.server_strokes,
+        serverVersion: r.server_version,
+        modifiedBy: r.modified_by,
+        source: 'needs_review',
+      }))))
+    }
+    checkNeedsReview()
+    window.addEventListener('mgm-offline-queue-changed', checkNeedsReview)
+    return () => window.removeEventListener('mgm-offline-queue-changed', checkNeedsReview)
   }, [registrationId, activeRoundId])
 
   useEffect(() => {
@@ -418,17 +427,26 @@ export default function Scorecard() {
 
     if (keepMine) {
       // Force-save without version check
+      const forcedItem = { registration_id: registrationId, round_id: activeRoundId, hole_id: holeId, strokes }
       setIsSaving(true)
       try {
-        const res = await api.post('/scores/', {
-          scores: [{ registration_id: registrationId, round_id: activeRoundId, hole_id: holeId, strokes }],
-        })
+        const res = await postScoresWithRetry([forcedItem])
         const saved = res?.scores?.[0]
         setScoreVersions((v) => ({ ...v, [holeId]: saved ? saved.version : (serverVersion || 1) + 1 }))
         clearDirty(holeId)
         removeQueuedScore(registrationId, activeRoundId, holeId)
       } catch (err) {
-        setSaveError(err.message || 'Failed to save.')
+        // Same fallback every other save path gets: don't just show an
+        // error and silently drop the player's "keep mine" choice — queue
+        // it (unconditionally, since it's already a forced overwrite) so
+        // it isn't lost on bad signal.
+        if (!navigator.onLine || isRetryableError(err)) {
+          queueScores({ scores: [forcedItem] })
+          setPendingSync(true)
+          clearDirty(holeId)
+        } else {
+          setSaveError(err.message || 'Failed to save.')
+        }
       } finally {
         setIsSaving(false)
       }
