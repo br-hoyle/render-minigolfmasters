@@ -14,7 +14,7 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 
-from config import DATABASE_URL
+from config import DATABASE_URL, DB_POOL_MAX, DB_POOL_MIN
 
 # ---------------------------------------------------------------------------
 # Connection pool — FastAPI runs sync route handlers in a thread pool, so
@@ -23,15 +23,39 @@ from config import DATABASE_URL
 # allows one command in flight per connection), so each request borrows its
 # own connection from a small pool and returns it when done.
 #
-# maxconn=50: Render's free tier runs a single instance, and Starlette's
-# threadpool for sync route handlers caps at 40 concurrent threads by
-# default — 50 covers that ceiling with room to spare while staying under
-# Supabase's free-tier limit of 60 direct connections.
+# DB_POOL_MIN/DB_POOL_MAX (env-configurable, defaults 5/45): Render's free
+# tier runs a single instance, and Starlette's threadpool for sync route
+# handlers caps at 40 concurrent threads by default, so the max should stay
+# >= 40 to keep DatabaseBusyError practically unreachable. The real ceiling
+# here is Supabase's pooler (Supavisor) client-connection limit in
+# transaction mode, not a fixed count of direct Postgres connections.
 #
 # Created lazily (on first actual DB access), not at import time — so this
 # module can be imported, and its pure helpers (like the cache below) unit
 # tested, without a reachable database.
+#
+# psycopg2.pool.ThreadedConnectionPool closes a connection on putconn()
+# once it already has >= minconn idle, so with minconn=1 almost every
+# borrow under load had to open a fresh TLS connection. A higher minconn
+# keeps that many connections warm. TCP keepalives detect a connection
+# Supavisor or the network has silently dropped (instead of handing out a
+# dead one and finding out mid-query); _checkout_connection additionally
+# discards and replaces a connection that's been idle longer than
+# _MAX_IDLE_SECONDS, since Supavisor can recycle idle backends on its own
+# schedule regardless of what psycopg2 thinks the connection's state is.
 # ---------------------------------------------------------------------------
+
+_MAX_IDLE_SECONDS = 300  # 5 minutes
+
+
+class _TrackedConnection(psycopg2.extensions.connection):
+    """A plain psycopg2 connection plus a last-used timestamp, so the pool
+    can recycle connections that have sat idle too long."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.last_used = time.monotonic()
+
 
 _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 _pool_init_lock = threading.Lock()
@@ -43,7 +67,14 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
         return _pool
     with _pool_init_lock:
         if _pool is None:
-            _pool = psycopg2.pool.ThreadedConnectionPool(1, 50, DATABASE_URL)
+            _pool = psycopg2.pool.ThreadedConnectionPool(
+                DB_POOL_MIN, DB_POOL_MAX, DATABASE_URL,
+                connection_factory=_TrackedConnection,
+                keepalives=1,
+                keepalives_idle=30,
+                keepalives_interval=10,
+                keepalives_count=3,
+            )
         return _pool
 
 
@@ -59,13 +90,26 @@ class ScoreVersionConflict(Exception):
         super().__init__("Score was modified by another user")
 
 
-@contextmanager
-def _cursor():
-    pool = _get_pool()
+def _checkout_connection(pool: psycopg2.pool.ThreadedConnectionPool) -> _TrackedConnection:
     try:
         conn = pool.getconn()
     except psycopg2.pool.PoolError as exc:
         raise DatabaseBusyError() from exc
+
+    if conn.closed or (time.monotonic() - conn.last_used) > _MAX_IDLE_SECONDS:
+        pool.putconn(conn, close=True)
+        try:
+            conn = pool.getconn()
+        except psycopg2.pool.PoolError as exc:
+            raise DatabaseBusyError() from exc
+
+    return conn
+
+
+@contextmanager
+def _cursor():
+    pool = _get_pool()
+    conn = _checkout_connection(pool)
     conn.autocommit = True
     ok = False
     try:
@@ -73,9 +117,27 @@ def _cursor():
             yield cur
         ok = True
     finally:
+        if ok:
+            conn.last_used = time.monotonic()
         # Discard (rather than return) a connection that errored — it may be
         # in a broken state. The pool lazily opens a fresh one on next use.
         pool.putconn(conn, close=not ok)
+
+
+def _with_read_retry(query_fn):
+    """Run a read-only query function, retrying once with a fresh connection
+    if the pooled connection turned out to be dead or broken.
+
+    Never wrap a write with this: if the connection died after a write was
+    sent but before its result came back, the commit state is unknown, and
+    retrying could double-apply it (e.g. double-increment a score's
+    version). Writes are left to surface the error; the frontend's own
+    retry (Phase 3.1) handles it from there.
+    """
+    try:
+        return query_fn()
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        return query_fn()
 
 
 # ---------------------------------------------------------------------------
@@ -236,28 +298,34 @@ def get_all_users() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM users ORDER BY created_at")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("users", _fetch)
+    return _get_cached("users", lambda: _with_read_retry(_fetch))
 
 
 def get_user_by_email(email: str) -> dict | None:
-    with _cursor() as cur:
-        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
-        row = cur.fetchone()
-        return _coerce(row) if row else None
+    def _query():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+            row = cur.fetchone()
+            return _coerce(row) if row else None
+    return _with_read_retry(_query)
 
 
 def get_user_by_id(user_id: str) -> dict | None:
-    with _cursor() as cur:
-        cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
-        row = cur.fetchone()
-        return _coerce(row) if row else None
+    def _query():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+            row = cur.fetchone()
+            return _coerce(row) if row else None
+    return _with_read_retry(_query)
 
 
 def get_user_by_invite_token(token: str) -> dict | None:
-    with _cursor() as cur:
-        cur.execute("SELECT * FROM users WHERE invite_token = %s", (token,))
-        row = cur.fetchone()
-        return _coerce(row) if row else None
+    def _query():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE invite_token = %s", (token,))
+            row = cur.fetchone()
+            return _coerce(row) if row else None
+    return _with_read_retry(_query)
 
 
 def insert_user(row: dict) -> None:
@@ -299,7 +367,7 @@ def get_all_courses() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM courses ORDER BY name")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("courses", _fetch)
+    return _get_cached("courses", lambda: _with_read_retry(_fetch))
 
 
 def get_course_by_id(course_id: str) -> dict | None:
@@ -340,7 +408,7 @@ def get_all_holes() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM holes ORDER BY course_id, hole_number")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("holes", _fetch)
+    return _get_cached("holes", lambda: _with_read_retry(_fetch))
 
 
 def get_holes_by_course(course_id: str) -> list[dict]:
@@ -378,20 +446,22 @@ def get_all_pars() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM pars ORDER BY hole_id, active_from")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("pars", _fetch)
+    return _get_cached("pars", lambda: _with_read_retry(_fetch))
 
 
 def get_pars_for_date(tournament_start_date: str) -> list[dict]:
     """Return pars active on tournament_start_date (SCD lookup)."""
-    with _cursor() as cur:
-        cur.execute(
-            """
-            SELECT * FROM pars
-            WHERE active_from <= %s::date AND active_to >= %s::date
-            """,
-            (tournament_start_date, tournament_start_date),
-        )
-        return _coerce_rows(cur.fetchall())
+    def _query():
+        with _cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM pars
+                WHERE active_from <= %s::date AND active_to >= %s::date
+                """,
+                (tournament_start_date, tournament_start_date),
+            )
+            return _coerce_rows(cur.fetchall())
+    return _with_read_retry(_query)
 
 
 def insert_par(row: dict) -> None:
@@ -421,23 +491,25 @@ def get_all_handicaps() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM handicaps ORDER BY user_id, active_from")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("handicaps", _fetch)
+    return _get_cached("handicaps", lambda: _with_read_retry(_fetch))
 
 
 def get_handicap_for_user_date(user_id: str, tournament_start_date: str) -> dict | None:
-    with _cursor() as cur:
-        cur.execute(
-            """
-            SELECT * FROM handicaps
-            WHERE user_id = %s
-              AND active_from <= %s::date
-              AND active_to   >= %s::date
-            LIMIT 1
-            """,
-            (user_id, tournament_start_date, tournament_start_date),
-        )
-        row = cur.fetchone()
-        return _coerce(row) if row else None
+    def _query():
+        with _cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM handicaps
+                WHERE user_id = %s
+                  AND active_from <= %s::date
+                  AND active_to   >= %s::date
+                LIMIT 1
+                """,
+                (user_id, tournament_start_date, tournament_start_date),
+            )
+            row = cur.fetchone()
+            return _coerce(row) if row else None
+    return _with_read_retry(_query)
 
 
 def insert_handicap(row: dict) -> None:
@@ -470,7 +542,7 @@ def get_all_tournaments() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM tournaments ORDER BY start_date DESC")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("tournaments", _fetch)
+    return _get_cached("tournaments", lambda: _with_read_retry(_fetch))
 
 
 def get_tournament_by_id(tournament_id: str) -> dict | None:
@@ -512,7 +584,7 @@ def get_all_rounds() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM rounds ORDER BY tournament_id, round_number")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("rounds", _fetch)
+    return _get_cached("rounds", lambda: _with_read_retry(_fetch))
 
 
 def get_rounds_by_tournament(tournament_id: str) -> list[dict]:
@@ -557,7 +629,7 @@ def get_all_registrations() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM registrations ORDER BY submitted_at DESC")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("registrations", _fetch)
+    return _get_cached("registrations", lambda: _with_read_retry(_fetch))
 
 
 def get_registrations_by_tournament(tournament_id: str) -> list[dict]:
@@ -607,7 +679,7 @@ def get_all_scores() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM scores ORDER BY submitted_at DESC")
             return _coerce_rows(cur.fetchall())
-    return _get_scores_cached("scores:all", _fetch)
+    return _get_scores_cached("scores:all", lambda: _with_read_retry(_fetch))
 
 
 def get_scores_by_tournament(tournament_id: str) -> list[dict]:
@@ -623,7 +695,7 @@ def get_scores_by_tournament(tournament_id: str) -> list[dict]:
                 (tournament_id,),
             )
             return _coerce_rows(cur.fetchall())
-    return _get_scores_cached(f"scores:tournament:{tournament_id}", _fetch)
+    return _get_scores_cached(f"scores:tournament:{tournament_id}", lambda: _with_read_retry(_fetch))
 
 
 def get_scores_by_registration(registration_id: str) -> list[dict]:
@@ -634,7 +706,7 @@ def get_scores_by_registration(registration_id: str) -> list[dict]:
                 (registration_id,),
             )
             return _coerce_rows(cur.fetchall())
-    return _get_scores_cached(f"scores:registration:{registration_id}", _fetch)
+    return _get_scores_cached(f"scores:registration:{registration_id}", lambda: _with_read_retry(_fetch))
 
 
 def get_scores_by_round(round_id: str) -> list[dict]:
@@ -645,14 +717,16 @@ def get_scores_by_round(round_id: str) -> list[dict]:
                 (round_id,),
             )
             return _coerce_rows(cur.fetchall())
-    return _get_scores_cached(f"scores:round:{round_id}", _fetch)
+    return _get_scores_cached(f"scores:round:{round_id}", lambda: _with_read_retry(_fetch))
 
 
 def get_score_by_id(score_id: str) -> dict | None:
-    with _cursor() as cur:
-        cur.execute("SELECT * FROM scores WHERE score_id = %s", (score_id,))
-        row = cur.fetchone()
-        return _coerce(row) if row else None
+    def _query():
+        with _cursor() as cur:
+            cur.execute("SELECT * FROM scores WHERE score_id = %s", (score_id,))
+            row = cur.fetchone()
+            return _coerce(row) if row else None
+    return _with_read_retry(_query)
 
 
 def insert_score(row: dict) -> None:
@@ -749,12 +823,14 @@ def upsert_score(
 # ---------------------------------------------------------------------------
 
 def get_score_audit_logs_by_score(score_id: str) -> list[dict]:
-    with _cursor() as cur:
-        cur.execute(
-            "SELECT * FROM score_audit_log WHERE score_id = %s ORDER BY modified_at",
-            (score_id,),
-        )
-        return _coerce_rows(cur.fetchall())
+    def _query():
+        with _cursor() as cur:
+            cur.execute(
+                "SELECT * FROM score_audit_log WHERE score_id = %s ORDER BY modified_at",
+                (score_id,),
+            )
+            return _coerce_rows(cur.fetchall())
+    return _with_read_retry(_query)
 
 
 def insert_score_audit_log(row: dict) -> None:
@@ -780,7 +856,7 @@ def get_all_handicap_requests() -> list[dict]:
         with _cursor() as cur:
             cur.execute("SELECT * FROM handicap_requests ORDER BY submitted_at DESC")
             return _coerce_rows(cur.fetchall())
-    return _get_cached("handicap_requests", _fetch)
+    return _get_cached("handicap_requests", lambda: _with_read_retry(_fetch))
 
 
 def get_handicap_requests_by_user(user_id: str) -> list[dict]:

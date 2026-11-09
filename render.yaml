@@ -9,6 +9,10 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      - key: DB_POOL_MIN
+        value: 5
+      - key: DB_POOL_MAX
+        value: 45
       - key: JWT_SECRET_KEY
         sync: false
       - key: JWT_ALGORITHM
