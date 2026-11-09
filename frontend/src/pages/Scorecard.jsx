@@ -5,6 +5,32 @@ import ScoreGrid from '../components/ScoreGrid'
 import { Spinner } from '../components/LoadingOverlay'
 import { getQueuedScores, queueScores, syncQueue } from '../utils/offlineQueue'
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Network failure, timeout (both surface with no .status), or 5xx/503 are
+ * treated as transient and worth retrying; everything else (401/403/409/4xx)
+ * is a real response and retrying it would just get the same answer again. */
+function isRetryableError(err) {
+  return err.status === undefined || err.status >= 500
+}
+
+const RETRY_BACKOFFS_MS = [1000, 3000]
+
+/** POST /scores/, retrying up to RETRY_BACKOFFS_MS.length times on a
+ * transient failure before giving up to the caller's offline/error handling. */
+async function postScoresWithRetry(scoreItems) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await api.post('/scores/', { scores: scoreItems })
+    } catch (err) {
+      if (attempt >= RETRY_BACKOFFS_MS.length || !isRetryableError(err)) throw err
+      await sleep(RETRY_BACKOFFS_MS[attempt])
+    }
+  }
+}
+
 function parLabel(score, par) {
   if (typeof score !== 'number' || typeof par !== 'number') return null
   const diff = score - par
@@ -189,16 +215,15 @@ export default function Scorecard() {
 
   async function saveScore(holeId, strokes, isLast) {
     const expectedVersion = scoreVersions[holeId]
+    const scoreItem = {
+      registration_id: registrationId,
+      round_id: activeRoundId,
+      hole_id: holeId,
+      strokes,
+      expected_version: expectedVersion,
+    }
     try {
-      const res = await api.post('/scores/', {
-        scores: [{
-          registration_id: registrationId,
-          round_id: activeRoundId,
-          hole_id: holeId,
-          strokes,
-          expected_version: expectedVersion,
-        }],
-      })
+      const res = await postScoresWithRetry([scoreItem])
       const saved = res?.scores?.[0]
       setScoreVersions((v) => ({ ...v, [holeId]: saved ? saved.version : (expectedVersion || 1) + 1 }))
       clearDirty(holeId)
@@ -208,7 +233,7 @@ export default function Scorecard() {
         setCurrentHoleIndex((i) => i + 1)
       }
     } catch (err) {
-      // Handle version conflict (409)
+      // Version conflict
       if (err.status === 409) {
         const detail = typeof err.detail === 'object' ? err.detail : {}
         const queue = conflictsFromDetail(detail)
@@ -219,21 +244,30 @@ export default function Scorecard() {
           return
         }
       }
-      // Offline or unreachable server: queue and advance optimistically.
-      // navigator.onLine only reflects device connectivity, not whether the
-      // request actually reached the backend — on spotty course signal the
-      // device can report "online" while every fetch still fails, so also
-      // treat any network-layer failure (no HTTP status) as offline.
-      if (!navigator.onLine || err.status === undefined) {
-        queueScores({
-          scores: [{
-            registration_id: registrationId,
-            round_id: activeRoundId,
-            hole_id: holeId,
-            strokes,
-            expected_version: expectedVersion,
-          }],
-        })
+      // Expired session: queue the score so it isn't lost, but don't
+      // pretend the save succeeded — the player needs to log back in.
+      if (err.status === 401) {
+        queueScores({ scores: [scoreItem] })
+        setPendingSync(true)
+        setSaveError('Your session expired — log in again to keep saving scores. This one is queued and will sync once you do.')
+        return
+      }
+      // Round locked / tournament not active: don't queue a score that will
+      // just be rejected again later. Refresh the lock banner so the player
+      // sees why.
+      if (err.status === 403) {
+        setSaveError(err.message || 'This round is locked for scoring.')
+        api.get(`/rounds/${activeRoundId}`).then((r) => setRoundLocked(r.locked === 'true')).catch(() => {})
+        return
+      }
+      // Offline, unreachable server, timeout, or a 5xx we already retried:
+      // queue and advance optimistically. navigator.onLine only reflects
+      // device connectivity, not whether the request actually reached the
+      // backend — on spotty course signal the device can report "online"
+      // while every fetch still fails, so also treat any network-layer
+      // failure (no HTTP status) as offline.
+      if (!navigator.onLine || isRetryableError(err)) {
+        queueScores({ scores: [scoreItem] })
         setPendingSync(true)
         if (isLast) {
           navigate('/registrations')
@@ -285,7 +319,7 @@ export default function Scorecard() {
       expected_version: scoreVersions[h.hole_id],
     }))
     try {
-      const res = await api.post('/scores/', { scores: scoreItems })
+      const res = await postScoresWithRetry(scoreItems)
       applySavedResults(res?.scores)
       navigate('/registrations')
     } catch (err) {
@@ -299,7 +333,18 @@ export default function Scorecard() {
           return
         }
       }
-      if (!navigator.onLine || err.status === undefined) {
+      if (err.status === 401) {
+        queueScores({ scores: scoreItems })
+        setPendingSync(true)
+        setSaveError('Your session expired — log in again. These scores are queued and will sync once you do.')
+        return
+      }
+      if (err.status === 403) {
+        setSaveError(err.message || 'This round is locked for scoring.')
+        api.get(`/rounds/${activeRoundId}`).then((r) => setRoundLocked(r.locked === 'true')).catch(() => {})
+        return
+      }
+      if (!navigator.onLine || isRetryableError(err)) {
         queueScores({ scores: scoreItems })
         setPendingSync(true)
         navigate('/registrations')

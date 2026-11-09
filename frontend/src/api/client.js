@@ -12,6 +12,12 @@ export function clearToken() {
   localStorage.removeItem('token')
 }
 
+// A write (score submit, registration, etc.) gets a shorter timeout than a
+// read — on bad signal, a stuck write should fail fast enough to fall back
+// to the offline queue instead of leaving the player staring at a spinner.
+const WRITE_TIMEOUT_MS = 15000
+const READ_TIMEOUT_MS = 20000
+
 async function request(path, options = {}) {
   const token = getToken()
   const headers = {
@@ -20,12 +26,20 @@ async function request(path, options = {}) {
     ...options.headers,
   }
 
+  const isWrite = !!options.method && options.method.toUpperCase() !== 'GET'
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), isWrite ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS)
+
   let res
   try {
-    res = await fetch(`${API_URL}${path}`, { ...options, headers })
+    res = await fetch(`${API_URL}${path}`, { ...options, headers, signal: controller.signal })
   } catch {
-    // Network error — Render free tier spins down after inactivity
+    // Network error, or the timeout above aborting the request — either
+    // way this has no HTTP status, so callers already treat it the same
+    // as "offline" (Render's free tier also spins down after inactivity).
     throw new Error("Looks like the server took a mulligan. Give it a few seconds and try again. ⛳")
+  } finally {
+    clearTimeout(timeoutId)
   }
 
   if (!res.ok) {
