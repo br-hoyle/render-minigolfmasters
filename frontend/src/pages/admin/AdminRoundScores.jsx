@@ -33,7 +33,7 @@ export default function AdminRoundScores() {
           api.get(`/rounds/${roundId}`),
           api.get(`/registrations/?tournament_id=${tournamentId}`),
           api.get('/users/'),
-          api.get(`/scores/?`),
+          api.get(`/scores/?tournament_id=${tournamentId}`),
           api.get('/pars/'),
         ])
 

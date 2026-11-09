@@ -49,7 +49,8 @@ render-minigolfmasters/
 │   │   ├── handicaps.py         # GET/POST /handicaps (resolved by tournament start_date)
 │   │   ├── handicap_requests.py # POST /handicap-requests/, GET /handicap-requests/me, GET /handicap-requests/,
 │   │   │                        # PATCH /handicap-requests/{id}
-│   │   ├── scores.py            # GET/POST /scores, PATCH /scores/{id}, GET /scores/{id}/audit
+│   │   ├── scores.py            # GET /scores (?tournament_id=/?round_id=/?registration_id=, admin-only unfiltered),
+│   │   │                        # POST /scores, PATCH /scores/{id}, GET /scores/{id}/audit
 │   │   └── contact.py           # POST /contact
 │   │
 │   ├── models/
@@ -213,6 +214,10 @@ Supabase is the database. The `sheets.py` file is the **only** place in the code
 - **Forfeit players** remain on the leaderboard visually marked and sorted to the bottom.
 - **User status:** `active` | `inactive`. Inactive users cannot log in.
 - **`_coerce` in sheets.py** converts all DB `None` → `""` (empty string) and all `date`/`datetime` objects → ISO strings. Downstream code must account for this — e.g., never assume a missing value is `null`; it will be `""`.
+- **`sheets.upsert_score`** checks `expected_version` atomically with the write (one SQL statement, one connection) and raises `ScoreVersionConflict(current_row)` on a mismatch — never read-then-write against a cached version.
+- **Scores are cached per-query** (`get_scores_by_tournament/_round/_registration`, each SQL-filtered, not Python-filtered from one whole-table cache), 8s TTL, invalidated together on any write. `get_all_scores()` (every score ever played) is admin-only.
+- **The in-memory cache** (`_get_cached`/`_invalidate` in sheets.py) is single-flight per key and generation-counted, so a fetch already in flight when a write invalidates its key won't repopulate the cache with stale pre-write data.
+- **The DB connection pool** is created lazily on first use (not at import), sized via `DB_POOL_MIN`/`DB_POOL_MAX`, and every read-only sheets.py function retries once on a dropped connection — writes never auto-retry (an unknown commit state plus `version + 1` could double-increment).
 
 ---
 
@@ -285,7 +290,10 @@ Returns `True` on success, `False` on failure (non-blocking). Email flows:
 - Scores can only be submitted or edited by players when tournament status is `active` AND the round is not `locked`.
 - Once a tournament is `complete`, player score submission and editing is locked entirely.
 - Only the tournament admin or global admin can modify scores on a completed tournament or a locked round.
-- If `expected_version` is provided and doesn't match the current score version, the backend returns a 409 Conflict with the current score data. The frontend presents a "keep mine / use theirs" dialog.
+- `POST /scores/` validates every item in the batch (registration, tournament status, permissions, round lock) before writing any of them, then writes each item independently. The version check happens atomically with the write (`sheets.upsert_score`), not against a cached read.
+- Success (`201`): `{"submitted": n, "scores": [{"hole_id", "round_id", "registration_id", "strokes", "version", "last_modified_by"}, ...]}`.
+- Conflict (`409`): `detail = {"message", "saved": [...same shape as above...], "conflicts": [{"hole_id", "current_strokes", "current_version", "modified_by"}, ...]}` — `saved` holds whatever in the batch *did* write. For a single-item request, `detail` also carries the original top-level `current_strokes` / `current_version` / `modified_by` / `hole_id` keys. The frontend applies `saved` to local state first, then walks the player through "keep mine / use theirs" for each entry in `conflicts` in turn.
+- `GET /scores/` takes an optional `tournament_id` (or `round_id` / `registration_id`) filter. With no filter at all it returns every score ever played and requires a global admin JWT — always pass one of the filters from frontend code.
 
 ---
 
@@ -298,13 +306,14 @@ Players are on their phones on a golf course, in sunlight, potentially with poor
   - **Stepper mode** (default) — one hole at a time, large `ScoreStepper` component with full-screen +/− buttons
   - **Grid mode** — compact scrollable list of all holes at once (`ScoreGrid` component)
 - **Par-relative badge** — Eagle / Birdie / Par / Bogey / Double Bogey shown in real time
-- **Unscored holes display `—`** — never default to par value; null/missing scores show as `—`
-- **Confirmation step** — "Review & Complete Round" shows full summary table before final navigation
+- **Unscored holes display `—`** — initial score state is `null`, never defaulted to par or any other value; the stepper's first "+" tap sets an unscored hole to its par (or 1 if par is unknown), "−" on an unscored hole is a no-op
+- **Only changed holes are submitted** — a `dirty` set tracks holes changed since their last confirmed save (including ones still queued offline). "Complete Round" and grid submit send only dirty, scored holes, each with its `expected_version`, so an admin's override to a hole the player never touched survives
+- **Confirmation step** — "Review & Complete Round" shows a full summary table (unscored holes as `—`) and warns "N holes have no score" without blocking completion; those holes are simply omitted from the submission
 - **Optimistic UI** — score display updates immediately; sync happens in the background
 - **Spinner on save** — submit/save buttons show an inline `<Spinner />` while `isSaving` is true
-- **Offline-first** — on network failure, scores are queued in `localStorage` via `offlineQueue.js` and the player advances optimistically. Sync runs on mount and whenever the player goes back online. A banner in `Layout.jsx` signals pending sync.
+- **Offline-first** — a save that fails with a network error, a timeout, or a 5xx is retried automatically (twice, with backoff) before falling back to the offline queue. The queue (`offlineQueue.js`) stores one entry per hole, keyed `registration_id|round_id|hole_id` — re-queuing a hole replaces its entry, so the latest value always wins, and a live save success removes any queued entry for that hole so a stale queued value can never overwrite a newer one. `Layout.jsx` triggers a sync on app load, on the `online` event, on `visibilitychange` to visible, every 30s while anything is queued, and on the `storage` event (another tab); `syncQueue` is single-flight. A 401 queues the score and prompts re-login (global `setUnauthorizedHandler` in `client.js` clears the stale session so `ProtectedRoute` redirects to `/login`, which returns to the scorecard on success); a 403 (locked round) does not queue — it shows a message and refreshes the lock state.
 - **Round lock** — if round is locked, a banner is shown and save is disabled
-- **Conflict resolution** — on 409, shows a dialog: "Keep mine" (force-save without version check) or "Use theirs" (update local display to server value)
+- **Conflict resolution** — on 409, shows a dialog: "Keep mine" (force-save without version check) or "Use theirs" (update local display to server value). Multiple conflicts from one bulk submission are resolved one at a time via a queue. A 409 hit during a background sync is stored in a "needs review" list with the server's current value attached and surfaced both as a `Layout.jsx` banner and, on reopening that round's scorecard, the same dialog.
 
 ---
 
@@ -512,6 +521,8 @@ Store in `.env` locally (never commit) and in Render's dashboard for production.
 ```
 # Supabase
 DATABASE_URL=                   # Supabase database URL
+DB_POOL_MIN=5                   # Idle connections kept warm (default 5)
+DB_POOL_MAX=45                  # Max pooled connections; keep >= 40 (Starlette's sync threadpool size)
 
 # Auth
 JWT_SECRET_KEY=                 # Generate with: openssl rand -hex 32

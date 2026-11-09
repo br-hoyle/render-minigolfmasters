@@ -28,7 +28,7 @@ export default function RoundScores() {
         const [tournament, rounds, scores, users, registrations, allPars, handicaps] = await Promise.all([
           api.get(`/tournaments/${tournamentId}`),
           api.get(`/rounds/?tournament_id=${tournamentId}`),
-          api.get(`/scores/?`),
+          api.get(`/scores/?tournament_id=${tournamentId}`),
           api.get('/users/public'),
           api.get(`/registrations/?tournament_id=${tournamentId}`),
           api.get('/pars/'),

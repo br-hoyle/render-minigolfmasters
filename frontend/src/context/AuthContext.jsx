@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { api, clearToken, setToken } from '../api/client'
+import { api, clearToken, setToken, setUnauthorizedHandler } from '../api/client'
 
 const AuthContext = createContext(null)
 
@@ -18,6 +18,17 @@ export function AuthProvider({ children }) {
         clearToken()
         setUser(null)
       })
+  }, [])
+
+  // A 401 from anywhere (not just this initial check) means the token is
+  // dead — clear it so ProtectedRoute redirects to /login instead of the
+  // app silently acting logged-in while every request fails.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      clearToken()
+      setUser(null)
+    })
+    return () => setUnauthorizedHandler(null)
   }, [])
 
   async function login(email, password) {

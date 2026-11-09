@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+DB_POOL_MIN = int(os.environ.get("DB_POOL_MIN", 5))
+DB_POOL_MAX = int(os.environ.get("DB_POOL_MAX", 45))
 
 JWT_SECRET_KEY = os.environ["JWT_SECRET_KEY"]
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")

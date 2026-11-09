@@ -41,7 +41,7 @@ export default function Leaderboard() {
           await Promise.all([
             api.get(`/tournaments/${tournamentId}`),
             api.get(`/registrations/?tournament_id=${tournamentId}`),
-            api.get(`/scores/?`),
+            api.get(`/scores/?tournament_id=${tournamentId}`),
             api.get('/users/public'),
             api.get(`/rounds/?tournament_id=${tournamentId}`),
             api.get(`/pars/`),

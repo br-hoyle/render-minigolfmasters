@@ -12,7 +12,25 @@ export function clearToken() {
   localStorage.removeItem('token')
 }
 
-async function request(path, options = {}) {
+// AuthContext registers a handler here so that a 401 from *any* request —
+// not just the ones it happens to be watching — clears the stale session.
+// ProtectedRoute then redirects to /login with the current location as
+// `state.from`, and Login navigates back there on success — which is how a
+// player whose JWT expired mid-round gets back to the scorecard to sync
+// whatever got queued while they were logged out.
+let onUnauthorized = null
+
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn
+}
+
+// A write (score submit, registration, etc.) gets a shorter timeout than a
+// read — on bad signal, a stuck write should fail fast enough to fall back
+// to the offline queue instead of leaving the player staring at a spinner.
+const WRITE_TIMEOUT_MS = 15000
+const READ_TIMEOUT_MS = 20000
+
+async function request(path, { suppressAuthRedirect, ...options } = {}) {
   const token = getToken()
   const headers = {
     'Content-Type': 'application/json',
@@ -20,17 +38,33 @@ async function request(path, options = {}) {
     ...options.headers,
   }
 
+  const isWrite = !!options.method && options.method.toUpperCase() !== 'GET'
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), isWrite ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS)
+
   let res
   try {
-    res = await fetch(`${API_URL}${path}`, { ...options, headers })
+    res = await fetch(`${API_URL}${path}`, { ...options, headers, signal: controller.signal })
   } catch {
-    // Network error — Render free tier spins down after inactivity
+    // Network error, or the timeout above aborting the request — either
+    // way this has no HTTP status, so callers already treat it the same
+    // as "offline" (Render's free tier also spins down after inactivity).
     throw new Error("Looks like the server took a mulligan. Give it a few seconds and try again. ⛳")
+  } finally {
+    clearTimeout(timeoutId)
   }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }))
-    throw Object.assign(new Error(error.detail || 'Request failed'), { status: res.status })
+    const message = typeof error.detail === 'string' ? error.detail : 'Request failed'
+    // suppressAuthRedirect: a silent background queue sync shouldn't yank
+    // the player off whatever page they're actively on (and lose anything
+    // they've typed but not yet saved/queued) just because an unrelated,
+    // passive request happened to find a dead token. The player's own
+    // active save attempts don't set this, so those still trigger the
+    // redirect — see Scorecard.jsx's own 401 handling.
+    if (res.status === 401 && !suppressAuthRedirect) onUnauthorized?.()
+    throw Object.assign(new Error(message), { status: res.status, detail: error.detail })
   }
 
   if (res.status === 204) return null
@@ -38,8 +72,8 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  get: (path) => request(path),
-  post: (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) }),
-  patch: (path, body) => request(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  delete: (path) => request(path, { method: 'DELETE' }),
+  get: (path, opts) => request(path, opts),
+  post: (path, body, opts) => request(path, { method: 'POST', body: JSON.stringify(body), ...opts }),
+  patch: (path, body, opts) => request(path, { method: 'PATCH', body: JSON.stringify(body), ...opts }),
+  delete: (path, opts) => request(path, { method: 'DELETE', ...opts }),
 }
