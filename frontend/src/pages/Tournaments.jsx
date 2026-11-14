@@ -54,7 +54,10 @@ export default function Tournaments() {
       const [ts, rs, regs] = await Promise.all(calls)
       setTournaments(ts)
       setRounds(rs)
-      setMyRegs(regs || [])
+      // For an admin, GET /registrations/ returns EVERY player's registration,
+      // so keep only our own — otherwise "+ Add Scores" opens whichever
+      // player's scorecard happens to be first for that tournament.
+      setMyRegs((regs || []).filter((r) => r.user_id === user?.user_id))
       setLoading(false)
     }
     load()

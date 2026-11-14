@@ -1,6 +1,34 @@
-from datetime import date
+import os
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, field_validator, model_validator
+
+try:
+    from zoneinfo import ZoneInfo
+    _TOURNAMENT_TZ = ZoneInfo(os.environ.get("TOURNAMENT_TIMEZONE", "America/Chicago"))
+except Exception:  # no tz database on the host — fall back to fixed US Central
+    _TOURNAMENT_TZ = timezone(timedelta(hours=-6))
+
+
+def tournament_status(start_date, end_date) -> str:
+    """"upcoming" | "active" | "complete", from the tournament's dates.
+
+    Status is NOT a database column — it only exists once computed here.
+    Anything holding a raw tournament row from sheets.py must call this
+    rather than reading row["status"], which is never there.
+
+    "Today" is the date where the tournament is played, not the server's
+    UTC date — otherwise an evening round locks at 6pm Central when UTC
+    rolls over to the next day.
+    """
+    today = datetime.now(_TOURNAMENT_TZ).date().isoformat()
+    start = str(start_date or "")[:10]
+    end = str(end_date or "")[:10]
+    if end and end < today:
+        return "complete"
+    if start and start > today:
+        return "upcoming"
+    return "active"
 
 
 class Tournament(BaseModel):
@@ -19,13 +47,7 @@ class Tournament(BaseModel):
 
     @model_validator(mode="after")
     def compute_status(self) -> "Tournament":
-        today = date.today().isoformat()
-        if self.end_date and self.end_date < today:
-            self.status = "complete"
-        elif self.start_date and self.start_date > today:
-            self.status = "upcoming"
-        else:
-            self.status = "active"
+        self.status = tournament_status(self.start_date, self.end_date)
         return self
 
     @field_validator("entry_fee", "max_players", "registration_deadline", mode="before")

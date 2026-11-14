@@ -8,6 +8,7 @@ import sheets
 from dependencies import get_current_user, get_current_user_optional, require_admin
 from models.score import Score
 from models.score_audit_log import ScoreAuditLog
+from models.tournament import tournament_status
 
 router = APIRouter()
 
@@ -60,7 +61,7 @@ def submit_scores(body: BulkSubmitScoresRequest, current_user: dict = Depends(ge
 
         is_privileged = current_user["role"] == "admin" or tournament.get("tournament_admin_id") == current_user["user_id"]
 
-        if tournament.get("status") != "active" and not is_privileged:
+        if tournament_status(tournament.get("start_date"), tournament.get("end_date")) != "active" and not is_privileged:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Score submission is locked")
 
         if reg["user_id"] != current_user["user_id"] and not is_privileged:
@@ -164,7 +165,7 @@ def update_score(score_id: str, strokes: int, current_user: dict = Depends(get_c
     tournament = sheets.get_tournament_by_id(reg["tournament_id"])
     is_privileged = current_user["role"] == "admin" or tournament.get("tournament_admin_id") == current_user["user_id"]
 
-    if tournament.get("status") != "active" and not is_privileged:
+    if tournament_status(tournament.get("start_date"), tournament.get("end_date")) != "active" and not is_privileged:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Score editing is locked")
 
     if score["user_id"] != current_user["user_id"] and not is_privileged:
