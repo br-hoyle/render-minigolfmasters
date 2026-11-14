@@ -15,6 +15,7 @@ import psycopg2.extras
 import psycopg2.pool
 
 from config import DATABASE_URL, DB_POOL_MAX, DB_POOL_MIN
+from dates import local_date
 
 # ---------------------------------------------------------------------------
 # Connection pool — FastAPI runs sync route handlers in a thread pool, so
@@ -449,19 +450,42 @@ def get_all_pars() -> list[dict]:
     return _get_cached("pars", lambda: _with_read_retry(_fetch))
 
 
+def _scd_covers(row: dict, day: str) -> bool:
+    """True if an SCD row (par or handicap) was in effect on `day`.
+
+    active_from is a timestamp, so it's reduced to its local calendar date
+    first — a par set at 10am on tournament day is in effect *that day*,
+    not from the next one.
+    """
+    return local_date(row.get("active_from")) <= day <= str(row.get("active_to", ""))[:10]
+
+
+def _latest_covering(rows: list[dict], day: str) -> dict | None:
+    """Of the rows in effect on `day`, the most recently started. A value
+    changed on the day itself leaves both the old and the new row covering
+    that date; the new one wins."""
+    covering = [r for r in rows if _scd_covers(r, day)]
+    return max(covering, key=lambda r: str(r.get("active_from", ""))) if covering else None
+
+
 def get_pars_for_date(tournament_start_date: str) -> list[dict]:
-    """Return pars active on tournament_start_date (SCD lookup)."""
-    def _query():
-        with _cursor() as cur:
-            cur.execute(
-                """
-                SELECT * FROM pars
-                WHERE active_from <= %s::date AND active_to >= %s::date
-                """,
-                (tournament_start_date, tournament_start_date),
-            )
-            return _coerce_rows(cur.fetchall())
-    return _with_read_retry(_query)
+    """Exactly one par per hole for a tournament starting on this date.
+
+    The par in effect on the start date if there is one; otherwise the
+    hole's current par (pars are often entered after the tournament was
+    created). This is the single place that decides a tournament's pars —
+    scorecard, leaderboard, round scores and recap all go through it.
+    """
+    day = str(tournament_start_date or "")[:10]
+    by_hole: dict[str, list[dict]] = {}
+    for p in get_all_pars():
+        by_hole.setdefault(p["hole_id"], []).append(p)
+    resolved = []
+    for rows in by_hole.values():
+        par = _latest_covering(rows, day) or _latest_covering(rows, "9999-12-31")
+        if par:
+            resolved.append(par)
+    return resolved
 
 
 def insert_par(row: dict) -> None:
@@ -492,6 +516,26 @@ def get_all_handicaps() -> list[dict]:
             cur.execute("SELECT * FROM handicaps ORDER BY user_id, active_from")
             return _coerce_rows(cur.fetchall())
     return _get_cached("handicaps", lambda: _with_read_retry(_fetch))
+
+
+def get_handicaps_for_date(tournament_start_date: str) -> list[dict]:
+    """At most one handicap per user: the one in effect on this date."""
+    day = str(tournament_start_date or "")[:10]
+    by_user: dict[str, list[dict]] = {}
+    for h in get_all_handicaps():
+        by_user.setdefault(h["user_id"], []).append(h)
+    resolved = []
+    for rows in by_user.values():
+        handicap = _latest_covering(rows, day)
+        if handicap:
+            resolved.append(handicap)
+    return resolved
+
+
+def get_handicap_for(user_id: str, tournament_start_date: str) -> dict | None:
+    """The handicap in effect for one user on this date, or None."""
+    day = str(tournament_start_date or "")[:10]
+    return _latest_covering([h for h in get_all_handicaps() if h["user_id"] == user_id], day)
 
 
 def get_handicap_for_user_date(user_id: str, tournament_start_date: str) -> dict | None:

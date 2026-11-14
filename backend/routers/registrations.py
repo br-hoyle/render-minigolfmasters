@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 import email_utils
 import sheets
+from dates import today_local
 from dependencies import get_current_user, get_current_user_optional, require_tournament_admin
 from models.registration import Registration
 
@@ -62,7 +63,7 @@ def create_registration(body: CreateRegistrationRequest, current_user: dict = De
     # Check registration deadline
     deadline = str(tournament.get("registration_deadline") or "").strip()
     if deadline:
-        today = datetime.now(tz=timezone.utc).date().isoformat()
+        today = today_local()
         if today > deadline:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Registration deadline has passed")
 

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import sheets
@@ -17,7 +17,14 @@ class SetParRequest(BaseModel):
 
 
 @router.get("/", response_model=list[Par])
-def list_pars(tournament_start_date: str | None = None):
+def list_pars(tournament_start_date: str | None = None, tournament_id: str | None = None):
+    """With tournament_id or tournament_start_date: exactly one par per hole,
+    resolved for that tournament. With neither: every par row ever (history)."""
+    if tournament_id:
+        t = sheets.get_tournament_by_id(tournament_id)
+        if not t:
+            raise HTTPException(status_code=404, detail="Tournament not found")
+        tournament_start_date = t.get("start_date", "")
     if tournament_start_date:
         return [Par(**p) for p in sheets.get_pars_for_date(tournament_start_date)]
     return [Par(**p) for p in sheets.get_all_pars()]

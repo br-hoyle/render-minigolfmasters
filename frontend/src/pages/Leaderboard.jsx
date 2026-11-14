@@ -44,8 +44,10 @@ export default function Leaderboard() {
             api.get(`/scores/?tournament_id=${tournamentId}`),
             api.get('/users/public'),
             api.get(`/rounds/?tournament_id=${tournamentId}`),
-            api.get(`/pars/`),
-            api.get('/handicaps/'),
+            // Both resolved server-side for this tournament: one par per hole,
+            // at most one handicap per player.
+            api.get(`/pars/?tournament_id=${tournamentId}`),
+            api.get(`/handicaps/?tournament_id=${tournamentId}`),
           ])
         setData({ tournament, registrations, scores, users, rounds, pars, handicaps })
       } catch (err) {
@@ -109,25 +111,11 @@ export default function Leaderboard() {
   // Build leaderboard rows
   const accepted = registrations.filter((r) => r.status === 'accepted' || r.status === 'forfeit')
 
-  let activePars = pars.filter((p) => String(p.active_to).slice(0, 10) === '9999-12-31')
-  if (activePars.length === 0) {
-    activePars = pars.filter(
-      (p) =>
-        p.active_from.slice(0, 10) <= tournament.start_date &&
-        p.active_to.slice(0, 10) >= tournament.start_date
-    )
-  }
-
-  const parMap = Object.fromEntries(activePars.map((p) => [p.hole_id, Number(p.par_strokes)]))
+  const parMap = Object.fromEntries(pars.map((p) => [p.hole_id, Number(p.par_strokes)]))
 
   const rows = accepted.map((reg) => {
     const u = users.find((u) => u.user_id === reg.user_id) || {}
-    const handicap = handicaps.find(
-      (h) =>
-        h.user_id === reg.user_id &&
-        h.active_from.slice(0, 10) <= tournament.start_date &&
-        h.active_to.slice(0, 10) >= tournament.start_date
-    )
+    const handicap = handicaps.find((h) => h.user_id === reg.user_id)
     const playerScores = filteredScores.filter((s) => s.registration_id === reg.registration_id)
     const gross = playerScores.reduce((sum, s) => sum + (Number(s.strokes) || 0), 0)
     // Compute par only for the holes this player actually scored — correct for any round/overall view

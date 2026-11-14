@@ -117,8 +117,12 @@ def delete_course(course_id: str, _: dict = Depends(require_admin)):
 
 
 @router.get("/{course_id}/analytics")
-def get_course_analytics(course_id: str):
-    """Return rich per-hole analytics + course summary for the public course detail page."""
+def get_course_analytics(course_id: str, tournament_id: str | None = None):
+    """Return rich per-hole analytics + course summary for the public course detail page.
+
+    With tournament_id, only that tournament's rounds on this course are
+    counted, against the pars that applied to that tournament.
+    """
     from collections import defaultdict
     import math
 
@@ -128,15 +132,29 @@ def get_course_analytics(course_id: str):
 
     hole_ids = {h["hole_id"] for h in holes}
 
-    all_pars = sheets.get_all_pars()
-    active_pars = {
-        p["hole_id"]: int(p["par_strokes"])
-        for p in all_pars
-        if str(p.get("active_to", ""))[:10] == "9999-12-31"
-    }
-
-    all_scores = sheets.get_all_scores()
-    relevant = [s for s in all_scores if s["hole_id"] in hole_ids and s.get("strokes")]
+    if tournament_id:
+        tournament = sheets.get_tournament_by_id(tournament_id)
+        if not tournament or tournament.get("deleted_at"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tournament not found")
+        round_ids = {
+            r["round_id"] for r in sheets.get_rounds_by_tournament(tournament_id)
+            if r.get("course_id") == course_id
+        }
+        active_pars = {
+            p["hole_id"]: int(p["par_strokes"])
+            for p in sheets.get_pars_for_date(tournament.get("start_date", ""))
+        }
+        relevant = [
+            s for s in sheets.get_scores_by_tournament(tournament_id)
+            if s["round_id"] in round_ids and s["hole_id"] in hole_ids and s.get("strokes")
+        ]
+    else:
+        active_pars = {
+            p["hole_id"]: int(p["par_strokes"])
+            for p in sheets.get_all_pars()
+            if str(p.get("active_to", ""))[:10] == "9999-12-31"
+        }
+        relevant = [s for s in sheets.get_all_scores() if s["hole_id"] in hole_ids and s.get("strokes")]
 
     course_par = sum(active_pars.get(h["hole_id"], 0) for h in holes)
 

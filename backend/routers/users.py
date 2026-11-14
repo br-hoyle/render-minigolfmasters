@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import auth as auth_utils
 import email_utils
 import sheets
+from dates import today_local
 from config import ADMIN_EMAIL, FRONTEND_URL
 from dependencies import get_current_user, require_admin
 from models.user import User
@@ -311,8 +312,7 @@ def get_championships(user_id: str):
 
     championships = []
     for t in all_tournaments:
-        from datetime import date
-        today = date.today().isoformat()
+        today = today_local()
         end_date = t.get("end_date", "")
         if end_date >= today:
             continue  # Only completed tournaments
@@ -324,12 +324,7 @@ def get_championships(user_id: str):
 
         player_nets = []
         for reg in regs:
-            handicap = next(
-                (h for h in all_handicaps
-                 if h["user_id"] == reg["user_id"]
-                 and str(h.get("active_from", ""))[:10] <= start_date <= str(h.get("active_to", ""))[:10]),
-                None,
-            )
+            handicap = sheets.get_handicap_for(reg["user_id"], start_date)
             player_scores = [s for s in all_scores if s["registration_id"] == reg["registration_id"]]
             gross = sum(int(s["strokes"]) for s in player_scores)
             if gross == 0:
@@ -368,7 +363,7 @@ def get_user_stats(user_id: str):
     all_holes = sheets.get_all_holes()
     all_handicaps = sheets.get_all_handicaps()
 
-    today = date_type.today().isoformat()
+    today = today_local()
 
     # Active pars
     par_map = {p["hole_id"]: int(p["par_strokes"]) for p in all_pars if str(p.get("active_to", ""))[:10] == "9999-12-31"}
@@ -497,12 +492,7 @@ def get_user_stats(user_id: str):
         t_regs = [r for r in all_reg_all if r["tournament_id"] == tid and r["status"] == "accepted"]
         player_nets = []
         for t_reg in t_regs:
-            hc = next(
-                (h for h in all_handicaps
-                 if h["user_id"] == t_reg["user_id"]
-                 and str(h.get("active_from", ""))[:10] <= start_date <= str(h.get("active_to", ""))[:10]),
-                None,
-            )
+            hc = sheets.get_handicap_for(t_reg["user_id"], start_date)
             t_scores = [s for s in all_scores if s["registration_id"] == t_reg["registration_id"]]
             gross = sum(int(s["strokes"]) for s in t_scores)
             if gross == 0:

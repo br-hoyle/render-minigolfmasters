@@ -67,8 +67,24 @@ def submit_scores(body: BulkSubmitScoresRequest, current_user: dict = Depends(ge
         if reg["user_id"] != current_user["user_id"] and not is_privileged:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot submit scores for another player")
 
+        # Only an accepted registration can score — not pending, waitlisted,
+        # rejected or forfeited ones.
+        if reg.get("status") != "accepted" and not is_privileged:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your registration isn't accepted for this tournament")
+
+        # The round must be one of this tournament's rounds, and the hole
+        # must be on that round's course — for admins too, since a score
+        # filed under the wrong round or course corrupts the leaderboard.
         round_data = sheets.get_round_by_id(item.round_id)
-        if round_data and str(round_data.get("locked", "")).lower() == "true" and not is_privileged:
+        if not round_data or round_data.get("tournament_id") != reg["tournament_id"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That round isn't part of this tournament")
+        course_hole_ids = {h["hole_id"] for h in sheets.get_holes_by_course(round_data.get("course_id"))}
+        if item.hole_id not in course_hole_ids:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That hole isn't on this round's course")
+        if item.strokes < 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Strokes must be at least 1")
+
+        if str(round_data.get("locked", "")).lower() == "true" and not is_privileged:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Round is locked")
 
         validated.append((item, reg, is_privileged))
@@ -170,6 +186,16 @@ def update_score(score_id: str, strokes: int, current_user: dict = Depends(get_c
 
     if score["user_id"] != current_user["user_id"] and not is_privileged:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot edit scores for another player")
+
+    if reg.get("status") != "accepted" and not is_privileged:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your registration isn't accepted for this tournament")
+
+    round_data = sheets.get_round_by_id(score["round_id"])
+    if round_data and str(round_data.get("locked", "")).lower() == "true" and not is_privileged:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Round is locked")
+
+    if strokes < 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Strokes must be at least 1")
 
     # Audit log for privileged overrides
     now = datetime.now(tz=timezone.utc).isoformat()

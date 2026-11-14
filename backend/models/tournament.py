@@ -1,13 +1,6 @@
-import os
-from datetime import datetime, timedelta, timezone
-
 from pydantic import BaseModel, field_validator, model_validator
 
-try:
-    from zoneinfo import ZoneInfo
-    _TOURNAMENT_TZ = ZoneInfo(os.environ.get("TOURNAMENT_TIMEZONE", "America/Chicago"))
-except Exception:  # no tz database on the host — fall back to fixed US Central
-    _TOURNAMENT_TZ = timezone(timedelta(hours=-6))
+from dates import today_local
 
 
 def tournament_status(start_date, end_date) -> str:
@@ -21,7 +14,7 @@ def tournament_status(start_date, end_date) -> str:
     UTC date — otherwise an evening round locks at 6pm Central when UTC
     rolls over to the next day.
     """
-    today = datetime.now(_TOURNAMENT_TZ).date().isoformat()
+    today = today_local()
     start = str(start_date or "")[:10]
     end = str(end_date or "")[:10]
     if end and end < today:

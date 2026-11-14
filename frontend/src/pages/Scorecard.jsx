@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api/client'
 import ScoreGrid from '../components/ScoreGrid'
 import { Spinner } from '../components/LoadingOverlay'
+import { HoleStatStrip, HoleStatsDialog } from '../components/HoleStats'
 import {
   getQueuedScores,
   queueScores,
@@ -80,6 +81,10 @@ export default function Scorecard() {
   const [conflictQueue, setConflictQueue] = useState([]) // [{ holeId, strokes, serverStrokes, serverVersion, modifiedBy }]
   const [afterConflicts, setAfterConflicts] = useState(null) // { navigateAfter } | { single, isLast }
   const [roundLocked, setRoundLocked] = useState(false)
+  // Hole analytics for this round's course — a nice-to-have, loaded in the
+  // background and simply absent if it fails (e.g. no signal).
+  const [holeStats, setHoleStats] = useState([])
+  const [showHoleStats, setShowHoleStats] = useState(false)
 
   const activeRoundId = roundId || (allRounds[0]?.round_id)
 
@@ -150,6 +155,11 @@ export default function Scorecard() {
 
       // Check if round is locked
       setRoundLocked(round.locked === 'true')
+
+      setHoleStats([])
+      api.get(`/courses/${round.course_id}/analytics`)
+        .then((a) => setHoleStats(a?.holes || []))
+        .catch(() => {})
 
       const [courseHoles, parsForDate] = await Promise.all([
         api.get(`/courses/${round.course_id}/holes`),
@@ -681,6 +691,7 @@ export default function Scorecard() {
 
   const activeRound = allRounds.find((r) => r.round_id === activeRoundId)
   const roundLabel = activeRound ? (activeRound.label || `Round ${activeRound.round_number}`) : ''
+  const currentHoleStat = holeStats.find((h) => h.hole_id === holeId)
 
   return (
     <div className="bg-forest min-h-screen text-white pb-10">
@@ -757,6 +768,15 @@ export default function Scorecard() {
       {viewMode === 'grid' && (
         <div className="px-6 mt-4">
           <p className="text-lg font-display font-black text-white mb-3">{roundLabel}</p>
+          {holeStats.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowHoleStats(true)}
+              className="mb-3 w-full bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-sm font-semibold text-white text-center"
+            >
+              View hole stats ›
+            </button>
+          )}
           <ScoreGrid holes={holes} pars={pars} scores={scores} onScoreChange={handleGridScoreChange} />
           {saveError && (
             <p className="mt-3 bg-[#CC0131] text-white text-sm font-semibold py-2 px-3 rounded-lg text-center">
@@ -783,6 +803,17 @@ export default function Scorecard() {
             </p>
             <p className="text-base font-semibold text-white/70 mt-1">Par: {par ?? 'Not Set'}</p>
           </div>
+
+          {/* Hole analytics for the current hole — tap for all holes */}
+          {holeStats.length > 0 && (
+            <div className="mx-6 mt-3">
+              <HoleStatStrip
+                stat={currentHoleStat}
+                holeCount={holeStats.length}
+                onOpen={() => setShowHoleStats(true)}
+              />
+            </div>
+          )}
 
           {/* Save error */}
           {saveError && (
@@ -870,6 +901,14 @@ export default function Scorecard() {
           )}
         </>
       )}
+
+      <HoleStatsDialog
+        open={showHoleStats}
+        onClose={() => setShowHoleStats(false)}
+        stats={holeStats}
+        currentHoleId={viewMode === 'stepper' ? holeId : null}
+        courseName={roundLabel}
+      />
     </div>
   )
 }

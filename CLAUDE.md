@@ -32,6 +32,7 @@ render-minigolfmasters/
 │   ├── config.py                # Environment variables, settings
 │   ├── sheets.py                # Supabase abstraction layer
 │   ├── auth.py                  # JWT creation, validation, invite token logic
+│   ├── dates.py                 # Tournament-local dates: today_local(), local_date() (TOURNAMENT_TIMEZONE)
 │   ├── email_utils.py           # Centralized email sender — send_email(to, subject, body, reply_to=None)
 │   ├── dependencies.py          # FastAPI dependencies (get_current_user, require_admin, require_tournament_admin)
 │   │
@@ -91,6 +92,7 @@ render-minigolfmasters/
 │   │   │   ├── ScoreGrid.jsx    # Compact grid mode — all holes at once with inline steppers
 │   │   │   ├── Banner.jsx       # Reusable image banner
 │   │   │   ├── Dialog.jsx       # Reusable modal/dialog
+│   │   │   ├── HoleStats.jsx    # Scorecard hole analytics: HoleStatStrip (current hole) + HoleStatsDialog (all holes)
 │   │   │   └── LoadingOverlay.jsx  # Full-screen loading spinner (default export) + inline Spinner (named export)
 │   │   │
 │   │   ├── utils/
@@ -203,6 +205,9 @@ Supabase is the database. The `sheets.py` file is the **only** place in the code
 
 - **Pars are slowly-changing dimensions (SCD).** `active_from` is the date the par was set; `active_to` defaults to `9999-12-31`. When a par is updated: set the previous record's `active_to` to today, insert a new record with `active_from` = today. To resolve the correct par for a tournament, filter where `active_from <= tournament.start_date AND active_to >= tournament.start_date`.
 - **Handicaps follow the same SCD pattern.**
+- **Tournament `status` is NOT a column.** It is computed from the dates by `models.tournament.tournament_status()` (`upcoming` / `active` / `complete`). A raw tournament row from `sheets.py` has no `status` key — backend code must call `tournament_status(row["start_date"], row["end_date"])`, never `row.get("status")`.
+- **"Today" is tournament-local, not UTC.** Use `dates.today_local()` for any date comparison (status, registration deadline) and `dates.local_date(ts)` to turn a stored timestamp into its calendar day. Timezone is `TOURNAMENT_TIMEZONE` (default `America/Chicago`).
+- **One resolver for a tournament's pars and handicaps:** `sheets.get_pars_for_date(start_date)` returns exactly one par per hole (the latest one in effect that day, else the hole's current par); `sheets.get_handicaps_for_date` / `get_handicap_for` return at most one handicap per user. Exposed as `GET /pars/?tournament_id=` and `GET /handicaps/?tournament_id=`. Scorecard, Leaderboard, RoundScores, recap and filtered course analytics all use these — don't re-implement the date filter client-side.
 - **Par SCD caveat:** `active_from` is stored as a full ISO timestamp (not just a date), so client-side string comparison against `tournament.start_date` is unreliable. Always either use the backend `/pars/?tournament_start_date=` endpoint (which uses `::date` casting), or filter to `active_to === '9999-12-31'` to get currently active pars. The latter is preferred for admin views where pars may have been set after the tournament start date.
 - **`last_modified_by`** on scores stores the `user_id` of whoever last wrote the score. Used to detect admin overrides.
 - **`version`** on scores is an integer starting at 1, incremented on every write. Used for optimistic concurrency conflict detection. If a client submits `expected_version` and it doesn't match, the backend returns a 409 with the current score data.
@@ -291,6 +296,7 @@ Returns `True` on success, `False` on failure (non-blocking). Email flows:
 - Once a tournament is `complete`, player score submission and editing is locked entirely.
 - Only the tournament admin or global admin can modify scores on a completed tournament or a locked round.
 - `POST /scores/` validates every item in the batch (registration, tournament status, permissions, round lock) before writing any of them, then writes each item independently. The version check happens atomically with the write (`sheets.upsert_score`), not against a cached read.
+- Before any write, `POST /scores/` also requires (for non-privileged users) an `accepted` registration, and (for everyone, admins included) that the round belongs to the registration's tournament, the hole is on that round's course, and strokes >= 1.
 - Success (`201`): `{"submitted": n, "scores": [{"hole_id", "round_id", "registration_id", "strokes", "version", "last_modified_by"}, ...]}`.
 - Conflict (`409`): `detail = {"message", "saved": [...same shape as above...], "conflicts": [{"hole_id", "current_strokes", "current_version", "modified_by"}, ...]}` — `saved` holds whatever in the batch *did* write. For a single-item request, `detail` also carries the original top-level `current_strokes` / `current_version` / `modified_by` / `hole_id` keys. The frontend applies `saved` to local state first, then walks the player through "keep mine / use theirs" for each entry in `conflicts` in turn.
 - `GET /scores/` takes an optional `tournament_id` (or `round_id` / `registration_id`) filter. With no filter at all it returns every score ever played and requires a global admin JWT — always pass one of the filters from frontend code.
@@ -313,6 +319,7 @@ Players are on their phones on a golf course, in sunlight, potentially with poor
 - **Spinner on save** — submit/save buttons show an inline `<Spinner />` while `isSaving` is true
 - **Offline-first** — a save that fails with a network error, a timeout, or a 5xx is retried automatically (twice, with backoff) before falling back to the offline queue. The queue (`offlineQueue.js`) stores one entry per hole, keyed `registration_id|round_id|hole_id` — re-queuing a hole replaces its entry, so the latest value always wins, and a live save success removes any queued entry for that hole so a stale queued value can never overwrite a newer one. `Layout.jsx` triggers a sync on app load, on the `online` event, on `visibilitychange` to visible, every 30s while anything is queued, and on the `storage` event (another tab); `syncQueue` is single-flight. A 401 queues the score and prompts re-login (global `setUnauthorizedHandler` in `client.js` clears the stale session so `ProtectedRoute` redirects to `/login`, which returns to the scorecard on success); a 403 (locked round) does not queue — it shows a message and refreshes the lock state.
 - **Round lock** — if round is locked, a banner is shown and save is disabled
+- **Hole stats** — a strip under the par line shows the current hole's all-time Avg / vs Par / Aces / Over-par % / difficulty rank (from `GET /courses/{id}/analytics`, loaded in the background, hidden if unavailable); tapping it opens a dialog with every hole. Grid mode has a "View hole stats" button for the same dialog.
 - **Conflict resolution** — on 409, shows a dialog: "Keep mine" (force-save without version check) or "Use theirs" (update local display to server value). Multiple conflicts from one bulk submission are resolved one at a time via a queue. A 409 hit during a background sync is stored in a "needs review" list with the server's current value attached and surfaced both as a `Layout.jsx` banner and, on reopening that round's scorecard, the same dialog.
 
 ---
@@ -357,6 +364,8 @@ Public. Fetches `GET /tournaments/{tournament_id}/recap` which computes in-memor
     - **Compare** — all holes side by side in a sortable table; click any column header to sort
 
 Data comes from `GET /courses/{id}/analytics` which computes: avg_score, vs_par, ace_pct, bogey_plus_pct, std_dev, separation_score, difficulty_rank per hole, plus course-level summary.
+
+A **"Show analytics for"** dropdown filters the page to one tournament (`?tournament=<id>` in the URL → `GET /courses/{id}/analytics?tournament_id=`). TournamentDetail links each round to this filtered view.
 
 ---
 
@@ -414,6 +423,7 @@ Public. Shows:
 - **Tournament details form:** name, dates (stored as `YYYY-MM-DD`, always `.slice(0, 10)` when loading into `<input type="date">`), entry fee, max players, registration deadline. Saves via `PATCH /tournaments/{id}`. Send `null` not `""` for empty optional date fields.
 - **Rounds tab:** add/remove rounds. **Lock/Unlock** toggle per round (`PATCH /rounds/{id}/lock`). Locked rounds show a "Locked" badge.
 - **Registrations tab:** search + filter (All / Pending / Accepted / Waitlisted / Forfeit) + sort (newest/oldest). Registration date shown next to status. Bulk selection with checkboxes → "Accept Selected" / "Reject Selected" → confirmation dialog → `PATCH /registrations/bulk`. Individual accept/reject/forfeit buttons.
+  Each registration row also shows the player's email (mailto link; search matches it too).
 - **Scores tab:** select player + round → load hole scores with +/− steppers. Unscored holes initialize as `null` (not par). For any hole with an admin override (`last_modified_by ≠ player`), a ⊙ icon opens the score audit log dialog. Saves via `POST /scores/`.
 - **Announce button** in header: opens dialog with subject + message + status filter (multi-select: accepted, waitlisted, in_review, forfeit) → `POST /tournaments/{id}/announce` → shows "Sent to N players".
 

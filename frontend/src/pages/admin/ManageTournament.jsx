@@ -372,6 +372,10 @@ export default function ManageTournament() {
     return u ? `${u.first_name} ${u.last_name}` : userId
   }
 
+  function userEmail(userId) {
+    return users.find((u) => u.user_id === userId)?.email || ''
+  }
+
   function courseName(courseId) {
     const c = allCourses.find((c) => c.course_id === courseId)
     return c ? c.name : courseId
@@ -382,7 +386,9 @@ export default function ManageTournament() {
   const filteredRegs = registrations
     .filter((reg) => {
       const name = userName(reg.user_id).toLowerCase()
-      const matchesSearch = !regSearch || name.includes(regSearch.toLowerCase())
+      const email = userEmail(reg.user_id).toLowerCase()
+      const q = regSearch.toLowerCase()
+      const matchesSearch = !regSearch || name.includes(q) || email.includes(q)
       const matchesFilter =
         regFilter === 'All' ||
         (regFilter === 'Pending' && reg.status === 'in_review') ||
@@ -916,6 +922,14 @@ export default function ManageTournament() {
 
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-gray-900">{userName(reg.user_id)}</p>
+                      {userEmail(reg.user_id) && (
+                        <a
+                          href={`mailto:${userEmail(reg.user_id)}`}
+                          className="block text-xs text-gray-500 hover:text-forest truncate"
+                        >
+                          {userEmail(reg.user_id)}
+                        </a>
+                      )}
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className={`text-sm italic capitalize ${statusColor}`}>
                           {reg.status === 'in_review' ? 'pending' : reg.status}

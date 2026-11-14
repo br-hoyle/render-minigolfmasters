@@ -9,7 +9,7 @@ function mapsUrl(address) {
     ? `https://maps.apple.com/?q=${encoded}`
     : `https://maps.google.com/?q=${encoded}`
 }
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
+import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api/client'
 import LoadingOverlay from '../components/LoadingOverlay'
 
@@ -198,9 +198,13 @@ function HoleAnalyticsTable({ holes, focusHole }) {
 
 export default function CourseDetail() {
   const { courseId } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const focusHole = searchParams.get('hole') ? Number(searchParams.get('hole')) : null
+  // ?tournament=<id> narrows the analytics to one tournament's rounds here.
+  // Kept in the URL so the filtered view can be linked to and shared.
+  const tournamentFilter = searchParams.get('tournament') || ''
+  const [courseTournaments, setCourseTournaments] = useState([])
 
   const [course, setCourse] = useState(null)
   const [analytics, setAnalytics] = useState(null)
@@ -219,12 +223,38 @@ export default function CourseDetail() {
       .finally(() => setLoading(false))
   }, [courseId])
 
+  // Tournaments that have played (or are playing) a round on this course.
   useEffect(() => {
-    api.get(`/courses/${courseId}/analytics`)
-      .then(setAnalytics)
-      .catch((err) => setAnalyticsError(err.message))
-      .finally(() => setAnalyticsLoading(false))
+    Promise.all([api.get('/tournaments/'), api.get('/rounds/')])
+      .then(([ts, rs]) => {
+        const played = new Set(rs.filter((r) => r.course_id === courseId).map((r) => r.tournament_id))
+        setCourseTournaments(
+          ts
+            .filter((t) => played.has(t.tournament_id) && t.status !== 'upcoming')
+            .sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))
+        )
+      })
+      .catch(() => {})
   }, [courseId])
+
+  useEffect(() => {
+    let cancelled = false
+    setAnalyticsLoading(true)
+    setAnalyticsError(null)
+    const query = tournamentFilter ? `?tournament_id=${encodeURIComponent(tournamentFilter)}` : ''
+    api.get(`/courses/${courseId}/analytics${query}`)
+      .then((a) => { if (!cancelled) setAnalytics(a) })
+      .catch((err) => { if (!cancelled) { setAnalytics(null); setAnalyticsError(err.message) } })
+      .finally(() => { if (!cancelled) setAnalyticsLoading(false) })
+    return () => { cancelled = true }
+  }, [courseId, tournamentFilter])
+
+  function handleTournamentFilter(id) {
+    const next = new URLSearchParams(searchParams)
+    if (id) next.set('tournament', id)
+    else next.delete('tournament')
+    setSearchParams(next, { replace: true })
+  }
 
   if (loading) return <LoadingOverlay />
   if (courseError) return <div className="p-8 text-center text-[#CC0131]">{courseError}</div>
@@ -233,6 +263,7 @@ export default function CourseDetail() {
   const summary = analytics?.course_summary
   const holes = analytics?.holes || []
   const noData = summary && summary.sample_size === 0
+  const filteredTournament = courseTournaments.find((t) => t.tournament_id === tournamentFilter)
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
@@ -257,16 +288,50 @@ export default function CourseDetail() {
         )}
       </div>
 
+      {(courseTournaments.length > 0 || tournamentFilter) && (
+        <div>
+          <label htmlFor="tournament-filter" className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+            Show analytics for
+          </label>
+          <select
+            id="tournament-filter"
+            value={tournamentFilter}
+            onChange={(e) => handleTournamentFilter(e.target.value)}
+            className="w-full sm:w-80 bg-white border border-silver text-gray-900 font-semibold rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest/40"
+          >
+            <option value="">All tournaments</option>
+            {courseTournaments.map((t) => (
+              <option key={t.tournament_id} value={t.tournament_id}>
+                {t.name}
+              </option>
+            ))}
+            {tournamentFilter && !filteredTournament && (
+              <option value={tournamentFilter}>Selected tournament</option>
+            )}
+          </select>
+          {tournamentFilter && (
+            <Link
+              to={`/tournaments/${tournamentFilter}`}
+              className="inline-block mt-2 text-xs text-forest font-semibold hover:underline"
+            >
+              ← Back to {filteredTournament?.name || 'tournament'}
+            </Link>
+          )}
+        </div>
+      )}
+
       {analyticsLoading && <p className="text-gray-400 text-sm text-center">Loading analytics…</p>}
       {analyticsError && <p className="text-[#CC0131] text-sm">{analyticsError}</p>}
 
-      {analytics && noData && (
+      {!analyticsLoading && analytics && noData && (
         <p className="text-gray-400 text-sm text-center py-6">
-          No analytics available yet for this course.
+          {tournamentFilter
+            ? 'No scores recorded on this course for that tournament yet.'
+            : 'No analytics available yet for this course.'}
         </p>
       )}
 
-      {analytics && !noData && summary && (
+      {!analyticsLoading && analytics && !noData && summary && (
         <>
           {/* Course summary cards */}
           <div>

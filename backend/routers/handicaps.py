@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import sheets
@@ -17,15 +17,24 @@ class SetHandicapRequest(BaseModel):
 
 
 @router.get("/", response_model=list[Handicap])
-def list_handicaps(user_id: str | None = None, tournament_start_date: str | None = None):
-    all_h = sheets.get_all_handicaps()
+def list_handicaps(
+    user_id: str | None = None,
+    tournament_start_date: str | None = None,
+    tournament_id: str | None = None,
+):
+    """With tournament_id or tournament_start_date: at most one handicap per
+    user, the one in effect for that tournament. Otherwise full history."""
+    if tournament_id:
+        t = sheets.get_tournament_by_id(tournament_id)
+        if not t:
+            raise HTTPException(status_code=404, detail="Tournament not found")
+        tournament_start_date = t.get("start_date", "")
+    if tournament_start_date:
+        all_h = sheets.get_handicaps_for_date(tournament_start_date)
+    else:
+        all_h = sheets.get_all_handicaps()
     if user_id:
         all_h = [h for h in all_h if h["user_id"] == user_id]
-    if tournament_start_date:
-        all_h = [
-            h for h in all_h
-            if h["active_from"][:10] <= tournament_start_date <= h["active_to"][:10]
-        ]
     return [Handicap(**h) for h in all_h]
 
 

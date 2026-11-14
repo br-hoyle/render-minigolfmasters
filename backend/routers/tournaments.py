@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 import email_utils
 import sheets
+from dates import today_local
 from dependencies import get_current_user, require_admin
 from models.tournament import Tournament
 
@@ -109,10 +110,7 @@ def get_tournament_recap(tournament_id: str):
     users = sheets.get_all_users()
 
     start_date = t.get("start_date", "")
-    active_pars = [p for p in all_pars if str(p.get("active_from", ""))[:10] <= start_date <= str(p.get("active_to", ""))[:10]]
-    if not active_pars:
-        active_pars = [p for p in all_pars if str(p.get("active_to", ""))[:10] == "9999-12-31"]
-    par_map = {p["hole_id"]: int(p["par_strokes"]) for p in active_pars}
+    par_map = {p["hole_id"]: int(p["par_strokes"]) for p in sheets.get_pars_for_date(start_date)}
 
     # Build hole → course lookup
     hole_course_map = {h["hole_id"]: h.get("course_id") for h in all_holes}
@@ -136,12 +134,7 @@ def get_tournament_recap(tournament_id: str):
     player_rows = []
     for reg in accepted:
         u = next((u for u in users if u["user_id"] == reg["user_id"]), {})
-        handicap = next(
-            (h for h in all_handicaps
-             if h["user_id"] == reg["user_id"]
-             and str(h.get("active_from", ""))[:10] <= start_date <= str(h.get("active_to", ""))[:10]),
-            None,
-        )
+        handicap = sheets.get_handicap_for(reg["user_id"], start_date)
         handicap_strokes = int(handicap["strokes"]) if handicap else 0
         player_scores = [s for s in all_scores if s["registration_id"] == reg["registration_id"]]
         gross = sum(int(s["strokes"]) for s in player_scores)
@@ -346,8 +339,7 @@ def admin_stats(current_user: dict = Depends(require_admin)):
     pending_registrations = sum(1 for r in all_regs if r["status"] == "in_review")
 
     all_tournaments = [t for t in sheets.get_all_tournaments() if not t.get("deleted_at")]
-    from datetime import date
-    today = date.today().isoformat()
+    today = today_local()
     active_tournaments = sum(
         1 for t in all_tournaments
         if t.get("start_date", "") <= today <= t.get("end_date", "")

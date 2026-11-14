@@ -243,6 +243,14 @@ export default function TournamentDetail() {
                     📍 {course.address}
                   </a>
                 )}
+                {course && (tournament.status === 'active' || tournament.status === 'complete') && (
+                  <Link
+                    to={`/courses/${r.course_id}?tournament=${tournamentId}`}
+                    className="block pt-1 text-xs text-forest font-semibold hover:underline"
+                  >
+                    Course results →
+                  </Link>
+                )}
               </div>
             )
           })}

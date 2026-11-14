@@ -31,8 +31,8 @@ export default function RoundScores() {
           api.get(`/scores/?tournament_id=${tournamentId}`),
           api.get('/users/public'),
           api.get(`/registrations/?tournament_id=${tournamentId}`),
-          api.get('/pars/'),
-          api.get('/handicaps/'),
+          api.get(`/pars/?tournament_id=${tournamentId}`),
+          api.get(`/handicaps/?tournament_id=${tournamentId}`),
         ])
 
         const round = rounds.find((r) => r.round_id === roundId) || rounds[0]
@@ -42,15 +42,7 @@ export default function RoundScores() {
           holes = holes.sort((a, b) => a.hole_number - b.hole_number)
         }
 
-        let activePars = allPars.filter(
-          (p) =>
-            p.active_from.slice(0, 10) <= tournament.start_date &&
-            p.active_to.slice(0, 10) >= tournament.start_date
-        )
-        if (activePars.length === 0) {
-          activePars = allPars.filter((p) => String(p.active_to).slice(0, 10) === '9999-12-31')
-        }
-        const parMap = Object.fromEntries(activePars.map((p) => [p.hole_id, Number(p.par_strokes)]))
+        const parMap = Object.fromEntries(allPars.map((p) => [p.hole_id, Number(p.par_strokes)]))
 
         const roundScores = scores.filter((s) => s.round_id === roundId)
 
@@ -103,12 +95,7 @@ export default function RoundScores() {
       .forEach((s) => {
         scoreMap[s.hole_id] = Number(s.strokes)
       })
-    const handicap = handicaps.find(
-      (h) =>
-        h.user_id === reg.user_id &&
-        h.active_from.slice(0, 10) <= tournament.start_date &&
-        h.active_to.slice(0, 10) >= tournament.start_date
-    )
+    const handicap = handicaps.find((h) => h.user_id === reg.user_id)
     const gross = Object.values(scoreMap).reduce((sum, s) => sum + (s || 0), 0)
     const net = gross - (Number(handicap?.strokes) || 0)
     const totalPar = holes.reduce((sum, h) => sum + (parMap[h.hole_id] || 0), 0)
